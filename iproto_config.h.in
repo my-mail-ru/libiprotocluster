@@ -1,0 +1,7 @@
+#ifndef IPROTO_CONFIG_H_INCLUDED
+#define IPROTO_CONFIG_H_INCLUDED
+
+#cmakedefine WITH_GRAPHITE
+#cmakedefine MY_MAIL_RU
+
+#endif
