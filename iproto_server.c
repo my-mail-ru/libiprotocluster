@@ -28,7 +28,9 @@ struct iproto_server {
     } status;
     short events;
     struct timeval last_error_time;
-    iproto_stat_t *stat;
+    iproto_stat_t *request_stat;
+    iproto_stat_t *poll_stat;
+    struct timeval poll_start_time;
 };
 
 struct message_entry {
@@ -70,7 +72,8 @@ iproto_server_t *iproto_server_init(char *host, int port) {
     server->shards = kh_init(server_shards, NULL, realloc);
     server->in_progress = kh_init(request_message, NULL, realloc);
     TAILQ_INIT(&server->failed);
-    server->stat = iproto_stat_init(hostport);
+    server->request_stat = iproto_stat_init("request", hostport);
+    server->poll_stat = iproto_stat_init("poll", hostport);
     server->refcnt = 1;
     int ret;
     k = kh_put(hp_servers, server_pool, server->hostport, &ret);
@@ -101,7 +104,8 @@ void iproto_server_free(iproto_server_t *server) {
             assert(kh_value(server_pool, k) == server);
             kh_del(hp_servers, server_pool, k);
         }
-        iproto_stat_free(server->stat);
+        iproto_stat_free(server->request_stat);
+        iproto_stat_free(server->poll_stat);
         free(server->hostport);
         free(server->host);
         free(server);
@@ -223,10 +227,6 @@ iproto_message_t *iproto_server_recv(iproto_server_t *server) {
     return message;
 }
 
-int iproto_server_message_count(iproto_server_t *server) {
-    return kh_size(server->in_progress);
-}
-
 static void iproto_server_mark_error(iproto_server_t *server) {
     gettimeofday(&server->last_error_time, NULL);
     khiter_t k;
@@ -236,17 +236,19 @@ static void iproto_server_mark_error(iproto_server_t *server) {
 }
 
 void iproto_server_prepare_poll(iproto_server_t *server, struct pollfd *pfd) {
+    if (!timerisset(&server->poll_start_time))
+        gettimeofday(&server->poll_start_time, NULL);
     pfd->fd = li_get_fd(server->connection);
-    pfd->events = iproto_server_message_count(server) > 0 ? server->events : 0;
+    pfd->events = server->events;
     pfd->revents = 0;
     iproto_server_log(server, LOG_DEBUG | LOG_POLL, "prepare poll(): 0x%x", pfd->events);
 }
 
-void iproto_server_handle_poll(iproto_server_t *server, short revents) {
+bool iproto_server_handle_poll(iproto_server_t *server, short revents) {
     iproto_server_log(server, LOG_DEBUG | LOG_POLL, "handle poll(): 0x%x", revents);
     if (revents & POLLERR) {
         iproto_server_handle_error(server, ERR_CODE_CONNECT_ERR);
-        return;
+        return true;
     }
     if (revents & POLLIN) {
         iproto_server_log(server, LOG_DEBUG | LOG_IO, "reading data");
@@ -296,10 +298,19 @@ void iproto_server_handle_poll(iproto_server_t *server, short revents) {
             iproto_server_connect(server);
         }
     }
+    if (server->events == 0) {
+        iproto_stat_insert(server->poll_stat, ERR_CODE_OK, &server->poll_start_time);
+        memset(&server->poll_start_time, 0, sizeof(struct timeval));
+        return true;
+    } else {
+        return false;
+    }
 }
 
 void iproto_server_handle_error(iproto_server_t *server, iproto_error_t error) {
     iproto_server_log(server, LOG_ERROR, "%s [%d]", iproto_error_string(error), error);
+    iproto_stat_insert(server->poll_stat, error, &server->poll_start_time);
+    memset(&server->poll_start_time, 0, sizeof(struct timeval));
     khiter_t k;
     foreach (server->in_progress, k) {
         iproto_message_t *message = kh_value(server->in_progress, k);
@@ -319,8 +330,8 @@ void iproto_server_remove_message(iproto_server_t *server, iproto_message_t *mes
     if (k != kh_end(server->in_progress)) kh_del(request_message, server->in_progress, k);
 }
 
-void iproto_server_insert_stat(iproto_server_t *server, iproto_error_t error, struct timeval *start_time) {
-    iproto_stat_insert(server->stat, error, start_time);
+void iproto_server_insert_request_stat(iproto_server_t *server, iproto_error_t error, struct timeval *start_time) {
+    iproto_stat_insert(server->request_stat, error, start_time);
 }
 
 void iproto_server_close_all(void) {

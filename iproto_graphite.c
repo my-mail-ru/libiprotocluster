@@ -67,9 +67,22 @@ static char *iproto_stat_graphite_quote_key(char *key) {
     return key;
 }
 
-void iproto_stat_graphite_send(const char *key, iproto_error_t error, iproto_stat_data_t *data) {
+void iproto_stat_graphite_send(const char *type, const char *server, iproto_error_t error, iproto_stat_data_t *data) {
     if (graphite_fd < 0) return;
-    char *graphite_key = iproto_stat_graphite_quote_key(strdup(key));
+    char *graphite_key;
+    if (server) {
+        size_t typelen = strlen(type);
+        size_t serverlen = strlen(server);
+        graphite_key = malloc(typelen + serverlen + 2);
+        memcpy(graphite_key, type, typelen + 1);
+        iproto_stat_graphite_quote_key(graphite_key);
+        graphite_key[typelen] = '.';
+        char *skey = graphite_key + typelen + 1;
+        memcpy(skey, server, serverlen + 1);
+        iproto_stat_graphite_quote_key(skey);
+    } else {
+        graphite_key = iproto_stat_graphite_quote_key(strdup(type));
+    }
     char *error_str = iproto_stat_graphite_quote_key(strdup(iproto_error_string(error)));
     iproto_stat_graphite_printf("%s.%s.%s.wallclock %d.%06d %d\n", graphite_prefix, graphite_key, error_str, data->wallclock.tv_sec, data->wallclock.tv_usec, data->registered);
     iproto_stat_graphite_printf("%s.%s.%s.count %d %d\n", graphite_prefix, graphite_key, error_str, data->count, data->registered);

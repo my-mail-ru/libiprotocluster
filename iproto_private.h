@@ -27,12 +27,11 @@ bool iproto_server_is_active(iproto_server_t *server, const struct timeval *serv
 int iproto_server_get_fd(iproto_server_t *server);
 void iproto_server_send(iproto_server_t *server, iproto_message_t *message);
 iproto_message_t *iproto_server_recv(iproto_server_t *server);
-int iproto_server_message_count(iproto_server_t *server);
 void iproto_server_remove_message(iproto_server_t *server, iproto_message_t *message, struct iproto_request_t *request);
 void iproto_server_prepare_poll(iproto_server_t *server, struct pollfd *pfd);
-void iproto_server_handle_poll(iproto_server_t *server, short revents);
+bool iproto_server_handle_poll(iproto_server_t *server, short revents);
 void iproto_server_handle_error(iproto_server_t *server, iproto_error_t error);
-void iproto_server_insert_stat(iproto_server_t *server, iproto_error_t error, struct timeval *start_time);
+void iproto_server_insert_request_stat(iproto_server_t *server, iproto_error_t error, struct timeval *start_time);
 void iproto_server_close_all(void);
 
 bool iproto_message_can_try(iproto_message_t *message, bool is_early_retry);
@@ -43,7 +42,7 @@ void iproto_message_insert_request(iproto_message_t *message, iproto_server_t *s
 void iproto_message_remove_request(iproto_message_t *message, iproto_server_t *server, struct iproto_request_t *request);
 int iproto_message_clear_requests(iproto_message_t *message);
 
-iproto_stat_t *iproto_stat_init(char *key);
+iproto_stat_t *iproto_stat_init(char *type, char *server);
 void iproto_stat_free(iproto_stat_t *stat);
 void iproto_stat_insert(iproto_stat_t *stat, iproto_error_t error, struct timeval *start_time);
 void iproto_stat_insert_duration(iproto_stat_t *stat, iproto_error_t error, struct timeval *duration);
@@ -62,10 +61,10 @@ extern iproto_logmask_t iproto_logmask;
         iproto_util_log_data(mask, data, length, "iproto: " format, ##__VA_ARGS__)
 
 #ifdef WITH_GRAPHITE
-void iproto_stat_graphite_send(const char *key, iproto_error_t error, iproto_stat_data_t *data);
+void iproto_stat_graphite_send(const char *type, const char *server, iproto_error_t error, iproto_stat_data_t *data);
 void iproto_stat_graphite_flush(void);
 #else
-#define iproto_stat_graphite_send(key, error, data)
+#define iproto_stat_graphite_send(type, server, error, data)
 #define iproto_stat_graphite_flush()
 #endif
 

@@ -94,7 +94,7 @@ void iproto_message_remove_request(iproto_message_t *message, iproto_server_t *s
     }
     assert(count == 1);
     TAILQ_REMOVE(&message->requests, remove, link);
-    iproto_server_insert_stat(server, message->response.error, &remove->start_time);
+    iproto_server_insert_request_stat(server, message->response.error, &remove->start_time);
     free(remove);
 }
 
@@ -104,7 +104,7 @@ int iproto_message_clear_requests(iproto_message_t *message) {
     while ((entry = TAILQ_FIRST(&message->requests))) {
         iproto_server_remove_message(entry->server, message, entry->request);
         TAILQ_REMOVE(&message->requests, entry, link);
-        iproto_server_insert_stat(entry->server, ERR_CODE_LOSE_EARLY_RETRY, &entry->start_time);
+        iproto_server_insert_request_stat(entry->server, ERR_CODE_LOSE_EARLY_RETRY, &entry->start_time);
         free(entry);
         count++;
     }

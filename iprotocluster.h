@@ -81,7 +81,8 @@ typedef struct {
     struct timeval wallclock;
     unsigned int count;
 } iproto_stat_data_t;
-typedef void iproto_stat_callback_t(const char *key, iproto_error_t error, const iproto_stat_data_t *data);
+
+typedef void iproto_stat_callback_t(const char *type, const char *server, iproto_error_t error, const iproto_stat_data_t *data);
 
 void iproto_initialize(void);
 void iproto_set_logmask(iproto_logmask_t mask);

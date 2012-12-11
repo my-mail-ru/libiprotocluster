@@ -16,6 +16,8 @@ static khash_t(iproto_stats) *stats = NULL;
 KHASH_MAP_INIT_INT(iproto_stat_data, iproto_stat_data_t *);
 
 struct iproto_stat {
+    char *type;
+    char *server;
     char *key;
     khash_t(iproto_stat_data) *data;
 };
@@ -28,11 +30,23 @@ void iproto_stat_set_callback(iproto_stat_callback_t *callback) {
     stat_callback = callback;
 }
 
-iproto_stat_t *iproto_stat_init(char *key) {
+iproto_stat_t *iproto_stat_init(char *type, char *server) {
     if (!stats)
         stats = kh_init(iproto_stats, NULL, realloc);
     iproto_stat_t *stat = malloc(sizeof(*stat));
-    stat->key = strdup(key);
+    stat->type = strdup(type);
+    if (server) {
+        stat->server = strdup(server);
+        size_t typelen = strlen(type);
+        size_t serverlen = strlen(server);
+        stat->key = malloc(typelen + serverlen + 2);
+        memcpy(stat->key, type, typelen + 1);
+        stat->key[typelen] = ':';
+        memcpy(stat->key + typelen + 1, server, serverlen + 1);
+    } else {
+        stat->server = NULL;
+        stat->key = strdup(type);
+    }
     stat->data = kh_init(iproto_stat_data, NULL, realloc);
     int ret;
     khiter_t k = kh_put(iproto_stats, stats, stat->key, &ret);
@@ -46,10 +60,10 @@ static void iproto_stat_send(iproto_stat_t *stat) {
     foreach (stat->data, k) {
         iproto_error_t error = kh_key(stat->data, k);
         iproto_stat_data_t *entry = kh_value(stat->data, k);
-        iproto_log(LOG_DEBUG | LOG_STAT, "stat: %s - %s: %d.%06d [%d]", stat->key, iproto_error_string(error), entry->wallclock.tv_sec, entry->wallclock.tv_usec, entry->count);
-        iproto_stat_graphite_send(stat->key, error, entry);
+        iproto_log(LOG_DEBUG | LOG_STAT, "stat: %s %s: %d.%06d [%d]", stat->key, iproto_error_string(error), entry->wallclock.tv_sec, entry->wallclock.tv_usec, entry->count);
+        iproto_stat_graphite_send(stat->type, stat->server, error, entry);
         if (stat_callback)
-            (*stat_callback)(stat->key, error, entry);
+            (*stat_callback)(stat->type, stat->server, error, entry);
         free(entry);
     }
     kh_clear(iproto_stat_data, stat->data);
@@ -65,6 +79,8 @@ void iproto_stat_free(iproto_stat_t *stat) {
         kh_destroy(iproto_stats, stats);
         stats = NULL;
     }
+    free(stat->type);
+    free(stat->server);
     free(stat->key);
     kh_destroy(iproto_stat_data, stat->data);
     free(stat);

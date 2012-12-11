@@ -55,7 +55,7 @@ iproto_t *iproto_init(void) {
     memset(iproto, 0, sizeof(iproto_t));
     iproto_opts_init(&iproto->opts);
     if (stat_refcnt++ == 0)
-        stat = iproto_stat_init("call");
+        stat = iproto_stat_init("call", NULL);
     return iproto;
 }
 
@@ -157,9 +157,10 @@ void iproto_bulk(iproto_t *iproto, iproto_message_t **messages, int nmessages, i
     }
     struct timeval start;
     memcpy(&start, &begin, sizeof(struct timeval));
+    struct pollfd *fds = NULL;
     while (wait) {
         assert(wait > 0);
-        struct pollfd *fds = malloc(kh_size(servers) * sizeof(struct pollfd));
+        fds = realloc(fds, kh_size(servers) * sizeof(struct pollfd));
         nfds_t nfds = 0;
         for (khiter_t k = kh_begin(servers); k != kh_end(servers); k++) {
             if (kh_exist(servers, k)) {
@@ -185,8 +186,7 @@ void iproto_bulk(iproto_t *iproto, iproto_message_t **messages, int nmessages, i
                     khiter_t k = kh_get(fd_server, servers, fds[i].fd);
                     assert(k != kh_end(servers));
                     iproto_server_t *server = kh_value(servers, k);
-                    iproto_server_handle_poll(server, fds[i].revents);
-                    if (iproto_server_message_count(server) == 0)
+                    if (iproto_server_handle_poll(server, fds[i].revents))
                         kh_del(fd_server, servers, k);
                     wait += iproto_postprocess_server(iproto, server, servers, false);
                 }
@@ -219,10 +219,10 @@ void iproto_bulk(iproto_t *iproto, iproto_message_t **messages, int nmessages, i
             free(servers_list);
         } else if (errno != EINTR) {
             iproto_log(LOG_ERROR | LOG_POLL, "poll error: %m");
-            assert(0); // FIXME
+            abort();
         }
-        free(fds); // FIXME realloc
     }
+    free(fds);
     kh_destroy(fd_server, servers);
     assert(wait == 0);
     struct timeval end;
