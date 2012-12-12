@@ -32,9 +32,10 @@ typedef enum ERR_CODES_ENUM iproto_error_t;
 typedef enum iproto_from ENUM_NOVAL_INITIALIZER(IPROTO_FROM) iproto_from_t;
 
 #define IPROTO_RETRY(_) \
-    _(RETRY_ANOTHER) \
-    _(RETRY_SAME)
-typedef enum iproto_retry ENUM_NOVAL_INITIALIZER(IPROTO_RETRY) iproto_retry_t;
+    _(RETRY_EARLY,   0x01) \
+    _(RETRY_SAFE,    0x02) \
+    _(RETRY_SAME,    0x04)
+typedef enum iproto_retry ENUM_INITIALIZER(IPROTO_RETRY) iproto_retry_t;
 
 #define IPROTO_LOGMASK(_) \
     _(LOG_NOTHING,  0x00) \
@@ -62,8 +63,9 @@ typedef struct iproto_server iproto_server_t;
 typedef struct iproto_message iproto_message_t;
 
 typedef struct {
-    struct timeval request_timeout;
-    struct timeval first_timeout;
+    struct timeval call_timeout;
+    struct timeval early_timeout;
+    struct timeval server_timeout;
     struct timeval server_freeze;
     int max_tries;
     iproto_retry_t retry;
@@ -73,7 +75,7 @@ typedef struct {
     int max_tries;
     unsigned shard_num;
     iproto_from_t from;
-    bool early_retry;
+    iproto_retry_t retry;
 } iproto_message_opts_t;
 
 typedef struct {

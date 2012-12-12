@@ -28,7 +28,7 @@ int iproto_server_get_fd(iproto_server_t *server);
 void iproto_server_send(iproto_server_t *server, iproto_message_t *message);
 iproto_message_t *iproto_server_recv(iproto_server_t *server);
 void iproto_server_remove_message(iproto_server_t *server, iproto_message_t *message, struct iproto_request_t *request);
-void iproto_server_prepare_poll(iproto_server_t *server, struct pollfd *pfd);
+void iproto_server_prepare_poll(iproto_server_t *server, struct pollfd *pfd, struct timeval *last_event_time);
 bool iproto_server_handle_poll(iproto_server_t *server, short revents);
 void iproto_server_handle_error(iproto_server_t *server, iproto_error_t error);
 void iproto_server_insert_request_stat(iproto_server_t *server, iproto_error_t error, struct timeval *start_time);

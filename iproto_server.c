@@ -27,10 +27,11 @@ struct iproto_server {
         Connected
     } status;
     short events;
+    struct timeval poll_start_time;
+    struct timeval last_event_time;
     struct timeval last_error_time;
     iproto_stat_t *request_stat;
     iproto_stat_t *poll_stat;
-    struct timeval poll_start_time;
 };
 
 struct message_entry {
@@ -235,12 +236,15 @@ static void iproto_server_mark_error(iproto_server_t *server) {
     }
 }
 
-void iproto_server_prepare_poll(iproto_server_t *server, struct pollfd *pfd) {
-    if (!timerisset(&server->poll_start_time))
+void iproto_server_prepare_poll(iproto_server_t *server, struct pollfd *pfd, struct timeval *last_event_time) {
+    if (!timerisset(&server->poll_start_time)) {
         gettimeofday(&server->poll_start_time, NULL);
+        memcpy(&server->last_event_time, &server->poll_start_time, sizeof(struct timeval));
+    }
     pfd->fd = li_get_fd(server->connection);
     pfd->events = server->events;
     pfd->revents = 0;
+    memcpy(last_event_time, &server->last_event_time, sizeof(struct timeval));
     iproto_server_log(server, LOG_DEBUG | LOG_POLL, "prepare poll(): 0x%x", pfd->events);
 }
 
@@ -303,6 +307,7 @@ bool iproto_server_handle_poll(iproto_server_t *server, short revents) {
         memset(&server->poll_start_time, 0, sizeof(struct timeval));
         return true;
     } else {
+        gettimeofday(&server->last_event_time, NULL);
         return false;
     }
 }

@@ -40,11 +40,12 @@ void iproto_initialize(void) {
 void iproto_opts_init(iproto_opts_t *opts) {
     iproto_initialize();
     memset(opts, 0, sizeof(iproto_opts_t));
-    opts->request_timeout.tv_sec = 2;
-    opts->first_timeout.tv_usec = 50000;
+    opts->call_timeout.tv_sec = 2;
+    opts->early_timeout.tv_usec = 50000;
+    opts->server_timeout.tv_usec = 500000;
     opts->server_freeze.tv_sec = 15;
     opts->max_tries = 3;
-    opts->retry = RETRY_ANOTHER;
+    opts->retry = RETRY_SAFE;
 }
 
 void iproto_opts_free(iproto_opts_t *opts) {
@@ -97,20 +98,23 @@ static bool iproto_is_server_replica(iproto_t *iproto, iproto_message_t *message
     return iproto_shard_is_server_replica(shard, server);
 }
 
-static int iproto_dispatch_message(iproto_t *iproto, iproto_message_t *message, khash_t(fd_server) *servers, iproto_server_t *not_server, bool finish) {
+static int iproto_dispatch_message(iproto_t *iproto, iproto_message_t *message, khash_t(fd_server) *servers, iproto_server_t *current_server, bool is_early_retry, bool finish) {
     if (iproto_message_error(message) == ERR_CODE_OK) {
         return -iproto_message_clear_requests(message);
     } else if (finish) {
         return 0;
-    } else if (!iproto_message_can_try(message, not_server != NULL)) {
+    } else if (!iproto_message_can_try(message, is_early_retry)) {
         return 0;
     }
+    iproto_message_opts_t *opts = iproto_message_options(message);
     iproto_server_t *srvs[3];
-    memset(&srvs, 0, 3 * sizeof(iproto_server_t *));
-    srvs[0] = not_server;
+    srvs[0] = current_server;
+    srvs[1] = NULL;
+    srvs[2] = NULL;
     int count = 0;
-    for (int t = (not_server ? 1 : 0); t < (not_server ? 3 : 1); t++) {
-        iproto_server_t *server = iproto_get_server(iproto, message, srvs, t);
+    bool same_server = current_server != NULL && !is_early_retry && (opts->retry & RETRY_SAME);
+    for (int t = (is_early_retry ? 1 : 0); t < (is_early_retry ? 3 : 1); t++) {
+        iproto_server_t *server = same_server ? current_server : iproto_get_server(iproto, message, srvs, t);
         if (server) {
             int fd = iproto_server_get_fd(server);
             assert(fd > 0);
@@ -121,9 +125,11 @@ static int iproto_dispatch_message(iproto_t *iproto, iproto_message_t *message, 
             iproto_server_send(server, message);
             srvs[t] = server;
             count++;
+        } else {
+            srvs[t] = NULL;
         }
     }
-    if (not_server) {
+    if (is_early_retry) {
         iproto_log(LOG_WARNING | LOG_RETRY, "early retry for %s - %s and %s", iproto_server_hostport(srvs[0]),
             srvs[1] ? iproto_server_hostport(srvs[1]) : "nothing",
             srvs[2] ? iproto_server_hostport(srvs[2]) : "nothing");
@@ -137,7 +143,7 @@ static int iproto_postprocess_server(iproto_t *iproto, iproto_server_t *server, 
     while ((message = iproto_server_recv(server))) {
         iproto_message_set_replica(message, iproto_is_server_replica(iproto, message, server));
         wait--;
-        wait += iproto_dispatch_message(iproto, message, servers, NULL, finish);
+        wait += iproto_dispatch_message(iproto, message, servers, server, false, finish);
     }
     return wait;
 }
@@ -145,15 +151,15 @@ static int iproto_postprocess_server(iproto_t *iproto, iproto_server_t *server, 
 void iproto_bulk(iproto_t *iproto, iproto_message_t **messages, int nmessages, iproto_opts_t *opts) {
     if (!opts) opts = &iproto->opts;
     iproto_error_t error = ERR_CODE_OK;
-    bool is_first_timeout = true;
+    bool is_early_timeout = true;
     struct timeval timeout;
-    memcpy(&timeout, &opts->first_timeout, sizeof(struct timeval));
+    memcpy(&timeout, &opts->early_timeout, sizeof(struct timeval));
     struct timeval begin;
     gettimeofday(&begin, NULL);
     int wait = 0;
     khash_t(fd_server) *servers = kh_init(fd_server, NULL, realloc);
     for (int i = 0; i < nmessages; i++) {
-        wait += iproto_dispatch_message(iproto, messages[i], servers, NULL, false);
+        wait += iproto_dispatch_message(iproto, messages[i], servers, NULL, false, false);
     }
     struct timeval start;
     memcpy(&start, &begin, sizeof(struct timeval));
@@ -162,14 +168,31 @@ void iproto_bulk(iproto_t *iproto, iproto_message_t **messages, int nmessages, i
         assert(wait > 0);
         fds = realloc(fds, kh_size(servers) * sizeof(struct pollfd));
         nfds_t nfds = 0;
+        int timeout_fd = -1;
+        struct timeval now;
+        gettimeofday(&now, NULL);
+        struct timeval last_event_min;
+        memcpy(&last_event_min, &now, sizeof(struct timeval));
         for (khiter_t k = kh_begin(servers); k != kh_end(servers); k++) {
             if (kh_exist(servers, k)) {
+                struct timeval last_event_time;
                 iproto_server_t *server = kh_value(servers, k);
-                iproto_server_prepare_poll(server, &fds[nfds]);
+                iproto_server_prepare_poll(server, &fds[nfds], &last_event_time);
+                if (timercmp(&last_event_time, &last_event_min, <)) {
+                    memcpy(&last_event_min, &last_event_time, sizeof(struct timeval));
+                    timeout_fd = kh_key(servers, k);
+                }
                 nfds++;
             }
         }
-        int timeoutms = timeout.tv_sec * 1000 + (int)ceil(timeout.tv_usec / 1000.);
+        struct timeval timeout_min;
+        timersub(&now, &last_event_min, &timeout_min);
+        timersub(&opts->server_timeout, &timeout_min, &timeout_min);
+        if (timercmp(&timeout, &timeout_min, <)) {
+            memcpy(&timeout_min, &timeout, sizeof(struct timeval));
+            timeout_fd = -1;
+        }
+        int timeoutms = timeout_min.tv_sec * 1000 + (int)ceil(timeout_min.tv_usec / 1000.);
         if (timeoutms < 0) timeoutms = 0;
         iproto_log(LOG_DEBUG | LOG_POLL, "poll(%d, %dms), wait %d messages", nfds, timeoutms, wait);
         int state = poll(fds, nfds, timeoutms);
@@ -192,31 +215,39 @@ void iproto_bulk(iproto_t *iproto, iproto_message_t **messages, int nmessages, i
                 }
             }
         } else if (state == 0) {
-            iproto_log(LOG_WARNING | LOG_POLL, "%s timeout", is_first_timeout ? "first" : "request");
-            iproto_server_t **servers_list = malloc(kh_size(servers) * sizeof(iproto_server_t *));
-            khiter_t k;
-            int s = 0;
-            foreach (servers, k) {
-                servers_list[s] = kh_value(servers, k);
-                s++;
-            }
-            for (int i = 0; i < s; i++) {
-                iproto_server_t *server = servers_list[i];
-                if (is_first_timeout) {
-                    timersub(&opts->request_timeout, &opts->first_timeout, &timeout);
-                    for (int j = 0; j < nmessages; j++) {
-                        iproto_message_t *message = messages[j];
-                        wait += iproto_dispatch_message(iproto, message, servers, server, false);
-                    }
-                } else {
-                    kh_del(fd_server, servers, k);
-                    iproto_server_handle_error(server, ERR_CODE_TIMEOUT);
-                    wait += iproto_postprocess_server(iproto, server, servers, true);
+            iproto_log(LOG_WARNING | LOG_POLL, "%s timeout", timeout_fd >= 0 ? "server" : is_early_timeout ? "early" : "call");
+            if (timeout_fd >= 0) {
+                khiter_t k = kh_get(fd_server, servers, timeout_fd);
+                iproto_server_t *server = kh_value(servers, k);
+                kh_del(fd_server, servers, k);
+                iproto_server_handle_error(server, ERR_CODE_TIMEOUT);
+                wait += iproto_postprocess_server(iproto, server, servers, false);
+            } else {
+                iproto_server_t **servers_list = malloc(kh_size(servers) * sizeof(iproto_server_t *));
+                khiter_t k;
+                int s = 0;
+                foreach (servers, k) {
+                    servers_list[s] = kh_value(servers, k);
+                    s++;
                 }
+                for (int i = 0; i < s; i++) {
+                    iproto_server_t *server = servers_list[i];
+                    if (is_early_timeout) {
+                        timersub(&opts->call_timeout, &opts->early_timeout, &timeout);
+                        for (int j = 0; j < nmessages; j++) {
+                            iproto_message_t *message = messages[j];
+                            wait += iproto_dispatch_message(iproto, message, servers, server, true, false);
+                        }
+                    } else {
+                        kh_del(fd_server, servers, k);
+                        iproto_server_handle_error(server, ERR_CODE_TIMEOUT);
+                        wait += iproto_postprocess_server(iproto, server, servers, true);
+                    }
+                }
+                if (is_early_timeout) is_early_timeout = false;
+                else error = ERR_CODE_TIMEOUT;
+                free(servers_list);
             }
-            if (is_first_timeout) is_first_timeout = false;
-            else error = ERR_CODE_TIMEOUT;
-            free(servers_list);
         } else if (errno != EINTR) {
             iproto_log(LOG_ERROR | LOG_POLL, "poll error: %m");
             abort();
@@ -230,7 +261,7 @@ void iproto_bulk(iproto_t *iproto, iproto_message_t **messages, int nmessages, i
     struct timeval overall;
     timersub(&end, &begin, &overall);
     iproto_stat_insert_duration(stat, error, &overall);
-    iproto_log(LOG_DEBUG | LOG_TIME, "request time: %dms.", overall.tv_sec * 1000 + (int)round(overall.tv_usec / 1000.));
+    iproto_log(LOG_DEBUG | LOG_TIME, "call time: %dms.", overall.tv_sec * 1000 + (int)round(overall.tv_usec / 1000.));
 }
 
 void iproto_do(iproto_t *iproto, iproto_message_t *message, iproto_opts_t *opts) {

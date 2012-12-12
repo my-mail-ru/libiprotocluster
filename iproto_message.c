@@ -27,6 +27,7 @@ struct iproto_message {
     } response;
     iproto_message_opts_t opts;
     int tries;
+    bool is_unsafe;
     TAILQ_HEAD(message_requests, server_request) requests;
 };
 
@@ -35,6 +36,7 @@ iproto_message_t *iproto_message_init(int code, void *data, size_t size) {
     memset(message, 0, sizeof(iproto_message_t));
     message->opts.from = FROM_MASTER;
     message->opts.max_tries = 3;
+    message->opts.retry = RETRY_SAFE;
     message->response.error = ERR_CODE_REQUEST_IN_PROGRESS;
     TAILQ_INIT(&message->requests);
     message->request.code = code;
@@ -65,9 +67,10 @@ void *iproto_message_response(iproto_message_t *message, size_t *size, bool *rep
 
 bool iproto_message_can_try(iproto_message_t *message, bool is_early_retry) {
     if (is_early_retry) {
-        return message->opts.early_retry;
+        return message->opts.retry & RETRY_EARLY;
     } else if (TAILQ_FIRST(&message->requests) == NULL) {
-        return ++message->tries <= message->opts.max_tries;
+        return (!((message->opts.retry & RETRY_SAFE) && message->is_unsafe))
+            && ++message->tries <= message->opts.max_tries;
     } else {
         return false;
     }
@@ -128,6 +131,11 @@ void iproto_message_set_response(iproto_message_t *message, iproto_error_t error
             free(message->response.data);
         message->response.data = NULL;
         message->response.size = 0;
+    }
+    struct server_request *entry;
+    TAILQ_FOREACH (entry, &message->requests, link) {
+        if (li_req_state(entry->request) != ERR_CODE_REQUEST_IN_PROGRESS)
+            message->is_unsafe = true;
     }
 }
 
