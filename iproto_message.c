@@ -65,6 +65,18 @@ void *iproto_message_response(iproto_message_t *message, size_t *size, bool *rep
     return message->response.data;
 }
 
+bool iproto_message_soft_retry(iproto_message_t *message) {
+    iproto_message_opts_t *opts = iproto_message_options(message);
+    if (opts->soft_retry_callback && opts->soft_retry_callback(message)) {
+        iproto_log(LOG_DEBUG | LOG_RETRY, "soft retry");
+        iproto_message_set_response(message, ERR_CODE_REQUEST_IN_PROGRESS, NULL, 0);
+        message->is_unsafe = false;
+        return true;
+    } else {
+        return false;
+    }
+}
+
 bool iproto_message_can_try(iproto_message_t *message, bool is_early_retry) {
     if (is_early_retry) {
         return message->opts.retry & RETRY_EARLY;
@@ -114,6 +126,20 @@ int iproto_message_clear_requests(iproto_message_t *message) {
     return count;
 }
 
+struct timeval *iproto_message_request_start_time(iproto_message_t *message, iproto_server_t *server) {
+    int count = 0;
+    struct timeval *start_time = NULL;
+    struct server_request *entry;
+    TAILQ_FOREACH (entry, &message->requests, link) {
+        if (entry->server == server) {
+            start_time = &entry->start_time;
+            count++;
+        }
+    }
+    assert(count == 1);
+    return start_time;
+}
+
 uint32_t iproto_message_get_request(iproto_message_t *message, void **data, size_t *size) {
     *data = message->request.data;
     *size = message->request.size;
@@ -123,7 +149,7 @@ uint32_t iproto_message_get_request(iproto_message_t *message, void **data, size
 void iproto_message_set_response(iproto_message_t *message, iproto_error_t error, void *data, size_t size) {
     message->response.error = error;
     if (data != NULL) {
-        message->response.data = malloc(size);
+        message->response.data = realloc(message->response.data, size);
         memcpy(message->response.data, data, size);
         message->response.size = size;
     } else {

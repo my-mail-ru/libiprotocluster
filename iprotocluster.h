@@ -71,11 +71,15 @@ typedef struct {
     iproto_retry_t retry;
 } iproto_opts_t;
 
+typedef bool iproto_message_soft_retry_callback_t(iproto_message_t *message);
+
 typedef struct {
     int max_tries;
     unsigned shard_num;
     iproto_from_t from;
     iproto_retry_t retry;
+    struct timeval timeout;
+    iproto_message_soft_retry_callback_t *soft_retry_callback;
 } iproto_message_opts_t;
 
 typedef struct {

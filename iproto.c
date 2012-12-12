@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 #include <sys/time.h>
 #include <errno.h>
 #include <math.h>
@@ -99,11 +100,9 @@ static bool iproto_is_server_replica(iproto_t *iproto, iproto_message_t *message
 }
 
 static int iproto_dispatch_message(iproto_t *iproto, iproto_message_t *message, khash_t(fd_server) *servers, iproto_server_t *current_server, bool is_early_retry, bool finish) {
-    if (iproto_message_error(message) == ERR_CODE_OK) {
+    if (iproto_message_error(message) == ERR_CODE_OK && !iproto_message_soft_retry(message)) {
         return -iproto_message_clear_requests(message);
-    } else if (finish) {
-        return 0;
-    } else if (!iproto_message_can_try(message, is_early_retry)) {
+    } else if (finish || !iproto_message_can_try(message, is_early_retry)) {
         return 0;
     }
     iproto_message_opts_t *opts = iproto_message_options(message);
@@ -152,6 +151,7 @@ void iproto_bulk(iproto_t *iproto, iproto_message_t **messages, int nmessages, i
     if (!opts) opts = &iproto->opts;
     iproto_error_t error = ERR_CODE_OK;
     bool is_early_timeout = true;
+    struct timeval *call_timeout = &opts->call_timeout;
     struct timeval timeout;
     memcpy(&timeout, &opts->early_timeout, sizeof(struct timeval));
     struct timeval begin;
@@ -160,6 +160,9 @@ void iproto_bulk(iproto_t *iproto, iproto_message_t **messages, int nmessages, i
     khash_t(fd_server) *servers = kh_init(fd_server, NULL, realloc);
     for (int i = 0; i < nmessages; i++) {
         wait += iproto_dispatch_message(iproto, messages[i], servers, NULL, false, false);
+        iproto_message_opts_t *opts = iproto_message_options(messages[i]);
+        if (timercmp(&opts->timeout, call_timeout, >))
+            call_timeout = &opts->timeout;
     }
     struct timeval start;
     memcpy(&start, &begin, sizeof(struct timeval));
@@ -171,23 +174,23 @@ void iproto_bulk(iproto_t *iproto, iproto_message_t **messages, int nmessages, i
         int timeout_fd = -1;
         struct timeval now;
         gettimeofday(&now, NULL);
-        struct timeval last_event_min;
-        memcpy(&last_event_min, &now, sizeof(struct timeval));
+        struct timeval deadline_min;
+        deadline_min.tv_sec = LONG_MAX;
+        deadline_min.tv_usec = LONG_MAX;
         for (khiter_t k = kh_begin(servers); k != kh_end(servers); k++) {
             if (kh_exist(servers, k)) {
-                struct timeval last_event_time;
+                struct timeval deadline;
                 iproto_server_t *server = kh_value(servers, k);
-                iproto_server_prepare_poll(server, &fds[nfds], &last_event_time);
-                if (timercmp(&last_event_time, &last_event_min, <)) {
-                    memcpy(&last_event_min, &last_event_time, sizeof(struct timeval));
+                iproto_server_prepare_poll(server, &fds[nfds], &opts->server_timeout, &deadline);
+                if (timercmp(&deadline, &deadline_min, <)) {
+                    memcpy(&deadline_min, &deadline, sizeof(struct timeval));
                     timeout_fd = kh_key(servers, k);
                 }
                 nfds++;
             }
         }
         struct timeval timeout_min;
-        timersub(&now, &last_event_min, &timeout_min);
-        timersub(&opts->server_timeout, &timeout_min, &timeout_min);
+        timersub(&deadline_min, &now, &timeout_min);
         if (timercmp(&timeout, &timeout_min, <)) {
             memcpy(&timeout_min, &timeout, sizeof(struct timeval));
             timeout_fd = -1;
@@ -233,7 +236,7 @@ void iproto_bulk(iproto_t *iproto, iproto_message_t **messages, int nmessages, i
                 for (int i = 0; i < s; i++) {
                     iproto_server_t *server = servers_list[i];
                     if (is_early_timeout) {
-                        timersub(&opts->call_timeout, &opts->early_timeout, &timeout);
+                        timersub(call_timeout, &opts->early_timeout, &timeout);
                         for (int j = 0; j < nmessages; j++) {
                             iproto_message_t *message = messages[j];
                             wait += iproto_dispatch_message(iproto, message, servers, server, true, false);

@@ -236,7 +236,32 @@ static void iproto_server_mark_error(iproto_server_t *server) {
     }
 }
 
-void iproto_server_prepare_poll(iproto_server_t *server, struct pollfd *pfd, struct timeval *last_event_time) {
+static void iproto_server_deadline(iproto_server_t *server, struct timeval *server_timeout, struct timeval *deadline) {
+    memset(deadline, 0, sizeof(*deadline));
+    bool all_set = true;
+    khiter_t k;
+    foreach (server->in_progress, k) {
+        iproto_message_t *message = kh_value(server->in_progress, k);
+        iproto_message_opts_t *opts = iproto_message_options(message);
+        if (timerisset(&opts->timeout)) {
+            struct timeval *start_time = iproto_message_request_start_time(message, server);
+            struct timeval message_deadline;
+            timeradd(start_time, &opts->timeout, &message_deadline);
+            if (timercmp(&message_deadline, deadline, >))
+                memcpy(deadline, &message_deadline, sizeof(struct timeval));
+        } else {
+            all_set = false;
+        }
+    }
+    if (!all_set) {
+        struct timeval server_deadline;
+        timeradd(&server->last_event_time, server_timeout, &server_deadline);
+        if (timercmp(&server_deadline, deadline, >))
+            memcpy(deadline, &server_deadline, sizeof(struct timeval));
+    }
+}
+
+void iproto_server_prepare_poll(iproto_server_t *server, struct pollfd *pfd, struct timeval *server_timeout, struct timeval *deadline) {
     if (!timerisset(&server->poll_start_time)) {
         gettimeofday(&server->poll_start_time, NULL);
         memcpy(&server->last_event_time, &server->poll_start_time, sizeof(struct timeval));
@@ -244,7 +269,7 @@ void iproto_server_prepare_poll(iproto_server_t *server, struct pollfd *pfd, str
     pfd->fd = li_get_fd(server->connection);
     pfd->events = server->events;
     pfd->revents = 0;
-    memcpy(last_event_time, &server->last_event_time, sizeof(struct timeval));
+    iproto_server_deadline(server, server_timeout, deadline);
     iproto_server_log(server, LOG_DEBUG | LOG_POLL, "prepare poll(): 0x%x", pfd->events);
 }
 
