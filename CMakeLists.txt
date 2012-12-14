@@ -12,7 +12,7 @@ configure_file(
 
 include_directories("${PROJECT_BINARY_DIR}")
 
-set(iprotocluster_cflags "-std=gnu99 -Wall -Werror -g")
+set(iprotocluster_cflags "-std=gnu99 -Wall -Werror -ggdb3")
 
 set(iprotocluster_sources iproto.c iproto_shard.c iproto_server.c iproto_message.c iproto_stat.c iproto_util.c)
 if(WITH_GRAPHITE)
