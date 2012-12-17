@@ -13,33 +13,41 @@
 #include <unistd.h>
 
 #define GRAPHITE_MAX_SIZE 1024
+#define GRAPHITE_MAX_PREFIX 63
 int graphite_fd = -1;
-static const char *graphite_prefix = NULL;
+static char graphite_prefix[GRAPHITE_MAX_PREFIX + 1];
 static char graphite_buffer[GRAPHITE_MAX_SIZE + 1];
 static char *graphite_current = graphite_buffer;
 
 iproto_error_t iproto_stat_graphite_set(const char *host, short port, const char *prefix) {
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = inet_addr(host);
-    if (addr.sin_addr.s_addr == INADDR_NONE) {
-        struct hostent *he = gethostbyname(host);
-        if (he && he->h_addrtype == AF_INET) {
-            memcpy(&addr.sin_addr.s_addr, he->h_addr_list[0], sizeof(addr.sin_addr.s_addr));
-        } else {
-            return ERR_CODE_HOST_UNKNOWN;
-        }
-    }
-    addr.sin_port = htons(port);
-    if (graphite_fd >= 0)
+    if (graphite_fd >= 0) {
         close(graphite_fd);
-    graphite_fd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (graphite_fd < 0)
-        return ERR_CODE_CONNECT_ERR;
-    if (connect(graphite_fd, (struct sockaddr *)&addr, sizeof(struct sockaddr_in)) < 0)
-        return ERR_CODE_CONNECT_ERR;
-    graphite_prefix = prefix;
+        graphite_fd = -1;
+    }
+    if (host != NULL) {
+        struct sockaddr_in addr;
+        memset(&addr, 0, sizeof(addr));
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = inet_addr(host);
+        if (addr.sin_addr.s_addr == INADDR_NONE) {
+            struct hostent *he = gethostbyname(host);
+            if (he && he->h_addrtype == AF_INET) {
+                memcpy(&addr.sin_addr.s_addr, he->h_addr_list[0], sizeof(addr.sin_addr.s_addr));
+            } else {
+                return ERR_CODE_HOST_UNKNOWN;
+            }
+        }
+        addr.sin_port = htons(port);
+        graphite_fd = socket(AF_INET, SOCK_DGRAM, 0);
+        if (graphite_fd < 0)
+            return ERR_CODE_CONNECT_ERR;
+        if (connect(graphite_fd, (struct sockaddr *)&addr, sizeof(struct sockaddr_in)) < 0) {
+            graphite_fd = -1;
+            return ERR_CODE_CONNECT_ERR;
+        }
+        strncpy(graphite_prefix, prefix, GRAPHITE_MAX_PREFIX);
+        graphite_prefix[GRAPHITE_MAX_PREFIX] = '\0';
+    }
     return ERR_CODE_OK;
 }
 
@@ -50,7 +58,10 @@ static void iproto_stat_graphite_printf(const char *format, ...) {
         va_start(ap, format);
         int len = vsnprintf(graphite_current, maxlen, format, ap);
         va_end(ap);
-        if (len > maxlen) {
+        if (len < 0) {
+            iproto_log(LOG_WARNING | LOG_GRAPHITE, "failed to prepare graphite data buffer: %m");
+            break;
+        } else if (len > maxlen) {
             iproto_stat_graphite_flush();
             assert(len <= GRAPHITE_MAX_SIZE);
         } else {
