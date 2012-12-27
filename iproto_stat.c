@@ -30,7 +30,7 @@ void iproto_stat_set_callback(iproto_stat_callback_t *callback) {
     stat_callback = callback;
 }
 
-iproto_stat_t *iproto_stat_init(char *type, char *server) {
+iproto_stat_t *iproto_stat_init(const char *type, const char *server) {
     if (!stats)
         stats = kh_init(iproto_stats, NULL, realloc);
     iproto_stat_t *stat = malloc(sizeof(*stat));

@@ -10,7 +10,6 @@
 #define IPROTO_ERR_CODE_FLAG ((0x80 << 16) | LIBIPROTO_ERR_CODE_FLAG)
 #define IPROTO_ERROR_CODES(_) \
     _(ERR_CODE_TIMEOUT,           (0x01 << 16) | (IPROTO_ERR_CODE_FLAG | TEMPORARY_ERR_CODE_FLAG), "timeout") \
-    _(ERR_CODE_POLL,              (0x02 << 16) | (IPROTO_ERR_CODE_FLAG | TEMPORARY_ERR_CODE_FLAG), "poll() failed") \
     _(ERR_CODE_INVALID_SHARD_NUM, (0x03 << 16) | (IPROTO_ERR_CODE_FLAG | FATAL_ERR_CODE_FLAG), "invalid shard_num") \
     _(ERR_CODE_LOSE_EARLY_RETRY,  (0x04 << 16) | (IPROTO_ERR_CODE_FLAG), "lose early retry")
 #define IPROTO_ALL_ERROR_CODES(x) IPROTO_ERROR_CODES(x) LIBIPROTO_ERROR_CODES(x) ERROR_CODES(x)
@@ -47,7 +46,7 @@ typedef enum iproto_retry ENUM_INITIALIZER(IPROTO_RETRY) iproto_retry_t;
     _(LOG_DATA,     (0x000001 << 8)) \
     _(LOG_CONNECT,  (0x000002 << 8)) \
     _(LOG_IO,       (0x000004 << 8)) \
-    _(LOG_POLL,     (0x000008 << 8)) \
+    _(LOG_EV,       (0x000008 << 8)) \
     _(LOG_TIME,     (0x000010 << 8)) \
     _(LOG_RETRY,    (0x000020 << 8)) \
     _(LOG_FORK,     (0x000040 << 8)) \
@@ -57,20 +56,17 @@ typedef enum iproto_retry ENUM_INITIALIZER(IPROTO_RETRY) iproto_retry_t;
 enum iproto_logmask ENUM_INITIALIZER(IPROTO_LOGMASK);
 typedef enum iproto_logmask iproto_logmask_t;
 
-typedef struct iproto_cluster iproto_t;
+typedef struct iproto_cluster iproto_cluster_t;
 typedef struct iproto_shard iproto_shard_t;
 typedef struct iproto_server iproto_server_t;
 typedef struct iproto_message iproto_message_t;
 
 typedef struct {
-    struct timeval call_timeout;
-    struct timeval early_timeout;
-    struct timeval server_timeout;
+    struct timeval connect_timeout;
     struct timeval server_freeze;
-    int max_tries;
-    iproto_retry_t retry;
-} iproto_opts_t;
+} iproto_cluster_opts_t;
 
+typedef void iproto_message_callback_t(iproto_message_t *message);
 typedef bool iproto_message_soft_retry_callback_t(iproto_message_t *message);
 
 typedef struct {
@@ -79,6 +75,10 @@ typedef struct {
     iproto_from_t from;
     iproto_retry_t retry;
     struct timeval timeout;
+    struct timeval early_timeout;
+    iproto_message_callback_t *callback;
+    struct timeval soft_retry_delay_min;
+    struct timeval soft_retry_delay_max;
     iproto_message_soft_retry_callback_t *soft_retry_callback;
 } iproto_message_opts_t;
 
@@ -93,11 +93,15 @@ typedef void iproto_stat_callback_t(const char *type, const char *server, iproto
 void iproto_initialize(void);
 void iproto_set_logmask(iproto_logmask_t mask);
 
-iproto_t *iproto_init(void);
-void iproto_free(iproto_t *iproto);
-void iproto_add_shard(iproto_t *iproto, iproto_shard_t *shard);
-void iproto_bulk(iproto_t *iproto, iproto_message_t **messages, int nmessages, iproto_opts_t *opts);
-void iproto_do(iproto_t *iproto, iproto_message_t *message, iproto_opts_t *opts);
+void iproto_bulk(iproto_message_t **messages, int nmessages, struct timeval *timeout);
+void iproto_do(iproto_message_t *message, struct timeval *timeout);
+
+iproto_cluster_t *iproto_cluster_init(void);
+void iproto_cluster_free(iproto_cluster_t *cluster);
+iproto_cluster_opts_t *iproto_cluster_options(iproto_cluster_t *cluster);
+void iproto_cluster_add_shard(iproto_cluster_t *cluster, iproto_shard_t *shard);
+void iproto_cluster_bulk(iproto_cluster_t *cluster, iproto_message_t **messages, int nmessages, struct timeval *timeout);
+void iproto_cluster_do(iproto_cluster_t *cluster, iproto_message_t *message, struct timeval *timeout);
 
 iproto_shard_t *iproto_shard_init(void);
 void iproto_shard_free(iproto_shard_t *shard);

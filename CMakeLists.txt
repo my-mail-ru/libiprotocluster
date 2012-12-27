@@ -14,7 +14,9 @@ include_directories("${PROJECT_BINARY_DIR}")
 
 set(iprotocluster_cflags "-std=gnu99 -Wall -Werror -ggdb3")
 
-set(iprotocluster_sources iproto.c iproto_shard.c iproto_server.c iproto_message.c iproto_stat.c iproto_util.c)
+set(iprotocluster_sources iproto.c iproto_cluster.c iproto_shard.c
+iproto_server.c iproto_message.c iproto_stat.c iproto_util.c
+iproto_server_ev.c iproto_message_ev.c)
 if(WITH_GRAPHITE)
     set(iprotocluster_sources ${iprotocluster_sources} iproto_graphite.c)
 endif()
@@ -23,7 +25,7 @@ if(MY_MAIL_RU)
 endif()
 
 add_library(iprotocluster ${iprotocluster_sources})
-target_link_libraries(iprotocluster iproto pthread m)
+target_link_libraries(iprotocluster iproto ev pthread m)
 set_target_properties(iprotocluster PROPERTIES COMPILE_FLAGS "${iprotocluster_cflags}")
 
 add_executable(iprotoclustertest test.c)

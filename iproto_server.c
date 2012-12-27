@@ -1,11 +1,12 @@
 #include "iproto_private.h"
+#include "iproto_private_ev.h"
 
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
-#include <poll.h>
 #include <sys/time.h>
 #include <sys/queue.h>
+#include <libev/ev.h>
 #include "khash.h"
 
 KHASH_INIT(server_shards, iproto_shard_t *, int, 1, kh_req_hash_func, kh_req_hash_equal);
@@ -26,12 +27,9 @@ struct iproto_server {
         ConnectInProgress,
         Connected
     } status;
-    short events;
-    struct timeval poll_start_time;
-    struct timeval last_event_time;
     struct timeval last_error_time;
     iproto_stat_t *request_stat;
-    iproto_stat_t *poll_stat;
+    iproto_server_ev_t *ev;
 };
 
 struct message_entry {
@@ -74,7 +72,7 @@ iproto_server_t *iproto_server_init(char *host, int port) {
     server->in_progress = kh_init(request_message, NULL, realloc);
     TAILQ_INIT(&server->failed);
     server->request_stat = iproto_stat_init("request", hostport);
-    server->poll_stat = iproto_stat_init("poll", hostport);
+    server->ev = iproto_server_ev_init(server);
     server->refcnt = 1;
     int ret;
     k = kh_put(hp_servers, server_pool, server->hostport, &ret);
@@ -84,8 +82,8 @@ iproto_server_t *iproto_server_init(char *host, int port) {
 }
 
 static void iproto_server_close(iproto_server_t *server) {
+    li_close(server->connection);
     if (server->status != NotConnected) {
-        li_close(server->connection);
         server->status = NotConnected;
         iproto_server_log(server, LOG_INFO | LOG_CONNECT, "disconnected");
     }
@@ -95,6 +93,7 @@ void iproto_server_free(iproto_server_t *server) {
     if (--server->refcnt == 0) {
         if (server->status != NotConnected)
             iproto_server_close(server);
+        iproto_server_ev_free(server->ev);
         li_free(server->connection);
         kh_destroy(request_message, server->in_progress);
         kh_destroy(server_shards, server->shards);
@@ -106,7 +105,6 @@ void iproto_server_free(iproto_server_t *server) {
             kh_del(hp_servers, server_pool, k);
         }
         iproto_stat_free(server->request_stat);
-        iproto_stat_free(server->poll_stat);
         free(server->hostport);
         free(server->host);
         free(server);
@@ -151,27 +149,34 @@ bool iproto_server_is_active(iproto_server_t *server, const struct timeval *serv
     return timercmp(&diff, server_freeze, >=);
 }
 
-static void iproto_server_connect(iproto_server_t *server) {
+static iproto_error_t iproto_server_connect(iproto_server_t *server) {
     iproto_error_t status = li_connect(server->connection, server->host, server->port, LIBIPROTO_OPT_NONBLOCK);
     switch (status) {
         case ERR_CODE_OK:
             server->status = Connected;
             memset(&server->last_error_time, 0, sizeof(struct timeval));
             iproto_server_log(server, LOG_INFO | LOG_CONNECT, "connected");
+            iproto_server_ev_connected(server->ev);
+            khiter_t k;
+            foreach (server->in_progress, k) {
+                iproto_message_t *message = kh_value(server->in_progress, k);
+                iproto_message_ev_start_timer(iproto_message_get_ev(message));
+            }
             break;
         case ERR_CODE_CONNECT_IN_PROGRESS:
             server->status = ConnectInProgress;
-            server->events = POLLOUT;
             iproto_server_log(server, LOG_DEBUG | LOG_CONNECT, "connecting");
+            iproto_server_ev_connecting(server->ev);
             break;
         case ERR_CODE_CONNECT_ERR:
-            server->status = NotConnected;
             iproto_server_handle_error(server, status);
+            server->status = NotConnected;
             break;
         default:
             iproto_server_log(server, LOG_ERROR | LOG_IO, "unknown li_connect() error code: %u", status);
             abort();
     }
+    return status;
 }
 
 int iproto_server_get_fd(iproto_server_t *server) {
@@ -180,18 +185,29 @@ int iproto_server_get_fd(iproto_server_t *server) {
 }
 
 void iproto_server_send(iproto_server_t *server, iproto_message_t *message) {
+    iproto_message_ev_t *mev = iproto_message_get_ev(message);
     void *data;
     size_t size;
     uint32_t code = iproto_message_get_request(message, &data, &size);
     struct iproto_request_t *request = li_req_init(server->connection, code, data, size);
     assert(request); // TODO Handle NULL result from this function
     iproto_server_log_data(server, LOG_DEBUG | LOG_DATA, data, size, "send request %p (code = %d)", request, code);
+    if (kh_size(server->in_progress) == 0) {
+        iproto_cluster_t *cluster = iproto_message_get_cluster(message);
+        iproto_cluster_opts_t *copts = iproto_cluster_options(cluster);
+        iproto_server_ev_start(server->ev, iproto_message_ev_loop(mev), &copts->connect_timeout);
+    }
     int ret;
     khiter_t k = kh_put(request_message, server->in_progress, request, &ret);
     assert(ret); // TODO Handle if (!ret) ...
     kh_value(server->in_progress, k) = message;
-    server->events |= POLLOUT;
     iproto_message_insert_request(message, server, request);
+    if (server->status == NotConnected) {
+        iproto_server_connect(server);
+    } else if (server->status == Connected) {
+        iproto_message_ev_start_timer(mev);
+        iproto_server_ev_update_io(server->ev, EV_WRITE, 0);
+    }
 }
 
 iproto_message_t *iproto_server_recv(iproto_server_t *server) {
@@ -222,7 +238,7 @@ iproto_message_t *iproto_server_recv(iproto_server_t *server) {
     // TODO Avoid copy maybe?
     size_t size;
     void *data = li_req_response_data(request, &size);
-    iproto_message_set_response(message, ERR_CODE_OK, data, size);
+    iproto_message_set_response(message, server, ERR_CODE_OK, data, size);
     iproto_message_remove_request(message, server, request);
     li_req_free(request);
     return message;
@@ -236,50 +252,9 @@ static void iproto_server_mark_error(iproto_server_t *server) {
     }
 }
 
-static void iproto_server_deadline(iproto_server_t *server, struct timeval *server_timeout, struct timeval *deadline) {
-    memset(deadline, 0, sizeof(*deadline));
-    bool all_set = true;
-    khiter_t k;
-    foreach (server->in_progress, k) {
-        iproto_message_t *message = kh_value(server->in_progress, k);
-        iproto_message_opts_t *opts = iproto_message_options(message);
-        if (timerisset(&opts->timeout)) {
-            struct timeval *start_time = iproto_message_request_start_time(message, server);
-            struct timeval message_deadline;
-            timeradd(start_time, &opts->timeout, &message_deadline);
-            if (timercmp(&message_deadline, deadline, >))
-                memcpy(deadline, &message_deadline, sizeof(struct timeval));
-        } else {
-            all_set = false;
-        }
-    }
-    if (!all_set) {
-        struct timeval server_deadline;
-        timeradd(&server->last_event_time, server_timeout, &server_deadline);
-        if (timercmp(&server_deadline, deadline, >))
-            memcpy(deadline, &server_deadline, sizeof(struct timeval));
-    }
-}
-
-void iproto_server_prepare_poll(iproto_server_t *server, struct pollfd *pfd, struct timeval *server_timeout, struct timeval *deadline) {
-    if (!timerisset(&server->poll_start_time)) {
-        gettimeofday(&server->poll_start_time, NULL);
-        memcpy(&server->last_event_time, &server->poll_start_time, sizeof(struct timeval));
-    }
-    pfd->fd = li_get_fd(server->connection);
-    pfd->events = server->events;
-    pfd->revents = 0;
-    iproto_server_deadline(server, server_timeout, deadline);
-    iproto_server_log(server, LOG_DEBUG | LOG_POLL, "prepare poll(): 0x%x", pfd->events);
-}
-
-bool iproto_server_handle_poll(iproto_server_t *server, short revents) {
-    iproto_server_log(server, LOG_DEBUG | LOG_POLL, "handle poll(): 0x%x", revents);
-    if (revents & POLLERR) {
-        iproto_server_handle_error(server, ERR_CODE_CONNECT_ERR);
-        return true;
-    }
-    if (revents & POLLIN) {
+void iproto_server_handle_io(iproto_server_t *server, short revents) {
+    iproto_server_log(server, LOG_DEBUG | LOG_EV, "handle I/O: 0x%x", revents);
+    if (revents & EV_READ) {
         iproto_server_log(server, LOG_DEBUG | LOG_IO, "reading data");
         iproto_error_t status = li_read(server->connection);
         switch (status) {
@@ -289,62 +264,50 @@ bool iproto_server_handle_poll(iproto_server_t *server, short revents) {
                 break;
             case ERR_CODE_OK:
                 iproto_server_log(server, LOG_DEBUG | LOG_IO, "not all data read");
-                server->events |= POLLIN;
+                iproto_server_ev_update_io(server->ev, EV_READ, 0);
                 break;
             case ERR_CODE_NOTHING_TO_DO:
                 iproto_server_log(server, LOG_DEBUG | LOG_IO, "all data read");
-                server->events &= ~POLLIN;
+                iproto_server_ev_update_io(server->ev, 0, EV_READ);
                 break;
             default:
                 iproto_server_log(server, LOG_ERROR | LOG_IO, "unknown li_read() error code: %u", status);
                 abort();
         }
     }
-    if (revents & POLLOUT) {
-        if (server->status == Connected) {
-            iproto_server_log(server, LOG_DEBUG | LOG_IO, "writting data");
-            iproto_error_t status = li_write(server->connection);
-            switch (status) {
-                case ERR_CODE_CONNECT_ERR:
-                    iproto_server_log(server, LOG_ERROR | LOG_IO, "write error");
-                    iproto_server_handle_error(server, status);
-                    break;
-                case ERR_CODE_OK:
-                    iproto_server_log(server, LOG_DEBUG | LOG_IO, "not all data written");
-                    server->events |= POLLOUT;
-                    server->events |= POLLIN;
-                    break;
-                case ERR_CODE_NOTHING_TO_DO:
-                    iproto_server_log(server, LOG_DEBUG | LOG_IO, "all data written");
-                    server->events &= ~POLLOUT;
-                    server->events |= POLLIN;
-                    break;
-                default:
-                    iproto_server_log(server, LOG_ERROR | LOG_IO, "unknown li_write() error code: %u", status);
-                    abort();
-            }
-        } else {
-            iproto_server_connect(server);
+    if (revents & EV_WRITE) {
+        if (server->status != Connected) {
+            iproto_error_t status = iproto_server_connect(server);
+            if (status != ERR_CODE_OK) return;
         }
-    }
-    if (server->events == 0) {
-        iproto_stat_insert(server->poll_stat, ERR_CODE_OK, &server->poll_start_time);
-        memset(&server->poll_start_time, 0, sizeof(struct timeval));
-        return true;
-    } else {
-        gettimeofday(&server->last_event_time, NULL);
-        return false;
+        iproto_server_log(server, LOG_DEBUG | LOG_IO, "writting data");
+        iproto_error_t status = li_write(server->connection);
+        switch (status) {
+            case ERR_CODE_CONNECT_ERR:
+                iproto_server_log(server, LOG_ERROR | LOG_IO, "write error");
+                iproto_server_handle_error(server, status);
+                break;
+            case ERR_CODE_OK:
+                iproto_server_log(server, LOG_DEBUG | LOG_IO, "not all data written");
+                iproto_server_ev_update_io(server->ev, EV_WRITE | EV_READ, 0);
+                break;
+            case ERR_CODE_NOTHING_TO_DO:
+                iproto_server_log(server, LOG_DEBUG | LOG_IO, "all data written");
+                iproto_server_ev_update_io(server->ev, EV_READ, EV_WRITE);
+                break;
+            default:
+                iproto_server_log(server, LOG_ERROR | LOG_IO, "unknown li_write() error code: %u", status);
+                abort();
+        }
     }
 }
 
 void iproto_server_handle_error(iproto_server_t *server, iproto_error_t error) {
     iproto_server_log(server, LOG_ERROR, "%s [%d]", iproto_error_string(error), error);
-    iproto_stat_insert(server->poll_stat, error, &server->poll_start_time);
-    memset(&server->poll_start_time, 0, sizeof(struct timeval));
     khiter_t k;
     foreach (server->in_progress, k) {
         iproto_message_t *message = kh_value(server->in_progress, k);
-        iproto_message_set_response(message, error, NULL, 0);
+        iproto_message_set_response(message, server, error, NULL, 0);
         struct message_entry *entry = malloc(sizeof(*entry));
         entry->message = message;
         TAILQ_INSERT_TAIL(&server->failed, entry, link);
@@ -353,11 +316,18 @@ void iproto_server_handle_error(iproto_server_t *server, iproto_error_t error) {
     kh_clear(request_message, server->in_progress);
     iproto_server_close(server);
     iproto_server_mark_error(server);
+    iproto_server_ev_done(server->ev, error);
+}
+
+void iproto_server_handle_message_timeout(iproto_server_t *server) {
+    if (kh_size(server->in_progress) == 0)
+        iproto_server_handle_error(server, ERR_CODE_TIMEOUT);
 }
 
 void iproto_server_remove_message(iproto_server_t *server, iproto_message_t *message, struct iproto_request_t *request) {
     khiter_t k = kh_get(request_message, server->in_progress, request);
     if (k != kh_end(server->in_progress)) kh_del(request_message, server->in_progress, k);
+    if (kh_size(server->in_progress) == 0) iproto_server_ev_done(server->ev, ERR_CODE_OK);
 }
 
 void iproto_server_insert_request_stat(iproto_server_t *server, iproto_error_t error, struct timeval *start_time) {

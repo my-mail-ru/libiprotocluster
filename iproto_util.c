@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <time.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 iproto_logmask_t iproto_logmask = LOG_INFO;
@@ -21,10 +22,11 @@ void iproto_set_logmask(iproto_logmask_t mask) {
 void iproto_util_log_prefix(iproto_logmask_t mask, const char *format, va_list ap) {
     char timestr[20];
     struct tm loctime;
-    time_t now = time(NULL);
-    localtime_r(&now, &loctime);
+    struct timeval now;
+    gettimeofday(&now, NULL);
+    localtime_r(&now.tv_sec, &loctime);
     strftime(timestr, sizeof(timestr), "%F %T", &loctime);
-    fprintf(stderr, "%d [%s] %s: ", getpid(), timestr, loglevel_str[mask & LOG_LEVEL]);
+    fprintf(stderr, "%d [%s.%06ld] %s: ", getpid(), timestr, now.tv_usec, loglevel_str[mask & LOG_LEVEL]);
     vfprintf(stderr, format, ap);
 }
 
