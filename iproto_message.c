@@ -29,6 +29,7 @@ struct iproto_message {
     } response;
     iproto_message_opts_t opts;
     int tries;
+    int soft_retries;
     bool is_unsafe;
     TAILQ_HEAD(message_requests, server_request) requests;
     iproto_message_ev_t *ev;
@@ -93,10 +94,11 @@ bool iproto_message_soft_retry(iproto_message_t *message, struct timeval *delay)
         iproto_message_set_response(message, NULL, ERR_CODE_REQUEST_IN_PROGRESS, NULL, 0);
         message->is_unsafe = false;
         timersub(&message->opts.soft_retry_delay_max, &message->opts.soft_retry_delay_min, delay);
-        double k = message->opts.max_tries > 2 ? (double)(message->tries - 1) / (message->opts.max_tries - 2) : 0.5;
+        double k = message->opts.max_tries > 2 ? (double)message->soft_retries / (message->opts.max_tries - 2) : 0.5;
         delay->tv_sec *= k;
         delay->tv_usec *= k;
         timeradd(&message->opts.soft_retry_delay_min, delay, delay);
+        message->soft_retries++;
         return true;
     } else {
         return false;
@@ -110,6 +112,10 @@ bool iproto_message_can_try(iproto_message_t *message) {
     } else {
         return false;
     }
+}
+
+bool iproto_message_retry_same(iproto_message_t *message) {
+    return (message->opts.retry & RETRY_SAME) && message->is_unsafe;
 }
 
 void iproto_message_insert_request(iproto_message_t *message, iproto_server_t *server, struct iproto_request_t *request) {

@@ -44,6 +44,7 @@ void iproto_message_set_cluster(iproto_message_t *message, iproto_cluster_t *clu
 bool iproto_message_in_progress(iproto_message_t *message);
 bool iproto_message_soft_retry(iproto_message_t *message, struct timeval *delay);
 bool iproto_message_can_try(iproto_message_t *message);
+bool iproto_message_retry_same(iproto_message_t *message);
 uint32_t iproto_message_get_request(iproto_message_t *message, void **data, size_t *size);
 void iproto_message_set_response(iproto_message_t *message, iproto_server_t *server, iproto_error_t error, void *data, size_t size);
 void iproto_message_insert_request(iproto_message_t *message, iproto_server_t *server, struct iproto_request_t *request);

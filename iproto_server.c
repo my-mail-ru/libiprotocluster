@@ -84,8 +84,9 @@ iproto_server_t *iproto_server_init(char *host, int port) {
 static void iproto_server_close(iproto_server_t *server) {
     li_close(server->connection);
     if (server->status != NotConnected) {
+        if (server->status != ConnectInProgress)
+            iproto_server_log(server, LOG_INFO | LOG_CONNECT, "disconnected");
         server->status = NotConnected;
-        iproto_server_log(server, LOG_INFO | LOG_CONNECT, "disconnected");
     }
 }
 

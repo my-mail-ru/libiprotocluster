@@ -91,9 +91,8 @@ static void iproto_message_ev_soft_retry(iproto_message_ev_t *ev, struct timeval
 }
 
 static void iproto_message_ev_send(iproto_message_ev_t *ev) {
-    iproto_message_opts_t *opts = iproto_message_options(ev->message);
     iproto_cluster_t *cluster = iproto_message_get_cluster(ev->message);
-    iproto_server_t *server = ev->last_server && (opts->retry & RETRY_SAME) ? ev->last_server
+    iproto_server_t *server = ev->last_server && iproto_message_retry_same(ev->message) ? ev->last_server
         : iproto_cluster_get_server(cluster, ev->message, NULL, 0);
     if (server == NULL) {
         iproto_message_ev_done(ev);
