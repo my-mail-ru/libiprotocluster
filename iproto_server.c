@@ -169,6 +169,7 @@ static iproto_error_t iproto_server_connect(iproto_server_t *server) {
             iproto_server_log(server, LOG_DEBUG | LOG_CONNECT, "connecting");
             iproto_server_ev_connecting(server->ev);
             break;
+        case ERR_CODE_HOST_UNKNOWN:
         case ERR_CODE_CONNECT_ERR:
             iproto_server_handle_error(server, status);
             server->status = NotConnected;
