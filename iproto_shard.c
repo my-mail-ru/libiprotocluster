@@ -1,6 +1,8 @@
 #include "iproto_private.h"
 
 #include <sys/queue.h>
+#include <time.h>
+#include <unistd.h>
 #include "khash.h"
 
 struct server_entry {
@@ -58,16 +60,31 @@ void iproto_shard_add_servers(iproto_shard_t *shard, bool replica, iproto_server
     struct priority_entry *priority = malloc(sizeof(*priority));
     struct priority_servers *head = &priority->servers;
     TAILQ_INIT(head);
+    iproto_server_t **shuffled = malloc(nservers * sizeof(*shuffled));
+    if (nservers > 0) {
+        static unsigned int seed;
+        static bool seed_ready = false;
+        if (!seed_ready) {
+            seed = time(NULL) * getpid();
+            seed_ready = true;
+        }
+        shuffled[0] = servers[0];
+        for (int i = 1; i < nservers; i++) {
+            int j = rand_r(&seed) % (i + 1);
+            shuffled[i] = shuffled[j];
+            shuffled[j] = servers[i];
+        }
+    }
     for (int i = 0; i < nservers; i++) {
         struct server_entry *entry = malloc(sizeof(*entry));
-        entry->server = servers[i];
-        iproto_server_add_to_shard(servers[i], shard);
+        entry->server = shuffled[i];
+        iproto_server_add_to_shard(entry->server, shard);
         TAILQ_INSERT_TAIL(head, entry, link);
         int ret;
-        khiter_t k = kh_put(shard_server_types, shard->server_types, servers[i], &ret);
+        khiter_t k = kh_put(shard_server_types, shard->server_types, entry->server, &ret);
         if (ret || !replica) kh_value(shard->server_types, k) = replica;
     }
-    // TODO shuffle
+    free(shuffled);
     TAILQ_INSERT_TAIL(priorities, priority, link);
 }
 
