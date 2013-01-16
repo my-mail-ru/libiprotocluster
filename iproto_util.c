@@ -43,7 +43,7 @@ void iproto_util_log_data(iproto_logmask_t mask, void *data, size_t length, cons
     va_start(ap, format);
     iproto_util_log_prefix(mask, format, ap);
     va_end(ap);
-    fprintf(stderr, ": [%d]", length);
+    fprintf(stderr, ": [%zu]", length);
     for (int i = 0; i < length; i++) {
         fprintf(stderr, " %02x", ((unsigned char *)data)[i]);
     }

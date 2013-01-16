@@ -6,7 +6,7 @@
 #include "iproto_config.h"
 
 #if (__WORDSIZE == 64)
-#define kh_req_hash_func(key) kh_int64_hash_func(key)
+#define kh_req_hash_func(key) kh_int64_hash_func((int64_t)key)
 #define kh_req_hash_equal(a, b) kh_int64_hash_equal(a, b)
 #else
 #define kh_req_hash_func(key) kh_int_hash_func(key)

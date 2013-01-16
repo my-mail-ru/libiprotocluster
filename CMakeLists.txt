@@ -32,6 +32,9 @@ add_executable(iprotoclustertest test.c)
 target_link_libraries(iprotoclustertest iprotocluster)
 set_target_properties(iprotoclustertest PROPERTIES COMPILE_FLAGS "${iprotocluster_cflags}")
 
-install(TARGETS iprotocluster LIBRARY DESTINATION lib ARCHIVE DESTINATION lib)
+install(TARGETS iprotocluster
+    LIBRARY DESTINATION ${LIB_INSTALL_DIR}
+    ARCHIVE DESTINATION ${LIB_INSTALL_DIR}
+)
 install(FILES iprotocluster.h DESTINATION include)
 install(FILES iproto_util.h DESTINATION include)
