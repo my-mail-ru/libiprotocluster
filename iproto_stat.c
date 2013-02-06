@@ -86,16 +86,22 @@ void iproto_stat_free(iproto_stat_t *stat) {
     free(stat);
 }
 
+void iproto_stat_flush(void) {
+    if (stats) {
+        khiter_t k;
+        foreach (stats, k) {
+            iproto_stat_t *stat = kh_value(stats, k);
+            iproto_stat_send(stat);
+        }
+    }
+    iproto_stat_graphite_flush();
+    flush_time = 0;
+}
+
 static void iproto_stat_maybe_flush(void) {
     if (flush_time) {
         if (time(NULL) >= flush_time) {
-            khiter_t k;
-            foreach (stats, k) {
-                iproto_stat_t *stat = kh_value(stats, k);
-                iproto_stat_send(stat);
-            }
-            iproto_stat_graphite_flush();
-            flush_time = 0;
+            iproto_stat_flush();
         }
     } else {
         flush_time = time(NULL) + flush_interval;

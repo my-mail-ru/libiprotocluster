@@ -118,6 +118,7 @@ void *iproto_message_response(iproto_message_t *message, size_t *size, bool *rep
 
 void iproto_stat_set_callback(iproto_stat_callback_t *callback);
 void iproto_stat_set_flush_interval(time_t interval);
+void iproto_stat_flush(void);
 
 iproto_error_t iproto_stat_graphite_set(const char *host, short port, const char *prefix);
 
