@@ -321,15 +321,18 @@ void iproto_server_handle_error(iproto_server_t *server, iproto_error_t error) {
     iproto_server_ev_done(server->ev, error);
 }
 
-void iproto_server_handle_message_timeout(iproto_server_t *server) {
-    if (kh_size(server->in_progress) == 0)
-        iproto_server_handle_error(server, ERR_CODE_TIMEOUT);
-}
-
-void iproto_server_remove_message(iproto_server_t *server, iproto_message_t *message, struct iproto_request_t *request) {
+void iproto_server_remove_message(iproto_server_t *server, iproto_message_t *message, struct iproto_request_t *request, iproto_error_t error) {
     khiter_t k = kh_get(request_message, server->in_progress, request);
-    if (k != kh_end(server->in_progress)) kh_del(request_message, server->in_progress, k);
-    if (kh_size(server->in_progress) == 0) iproto_server_ev_done(server->ev, ERR_CODE_OK);
+    if (k != kh_end(server->in_progress)) {
+        kh_del(request_message, server->in_progress, k);
+        if (kh_size(server->in_progress) == 0) {
+            if (error == ERR_CODE_TIMEOUT) {
+                iproto_server_close(server);
+                iproto_server_mark_error(server);
+            }
+            iproto_server_ev_done(server->ev, error);
+        }
+    }
 }
 
 void iproto_server_insert_request_stat(iproto_server_t *server, iproto_error_t error, struct timeval *start_time) {

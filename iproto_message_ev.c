@@ -147,7 +147,6 @@ static void iproto_message_ev_timeout_cb(EV_P_ ev_timer *w, int revents) {
     assert(iproto_message_in_progress(ev->message));
     iproto_message_set_response(ev->message, ev->last_server, ERR_CODE_TIMEOUT, NULL, 0);
     iproto_message_clear_requests(ev->message, ERR_CODE_TIMEOUT);
-    iproto_server_handle_message_timeout(ev->last_server);
     iproto_message_ev_dispatch(ev, false);
 }
 

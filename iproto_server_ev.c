@@ -5,7 +5,6 @@
 #include <stdlib.h>
 #include <sys/time.h>
 #include <libev/ev.h>
-#include "khash.h"
 
 struct iproto_server_ev {
     iproto_server_t *server;
@@ -15,9 +14,6 @@ struct iproto_server_ev {
     iproto_stat_t *poll_stat;
     struct timeval start_time;
 };
-
-KHASH_INIT(server_ev_set, iproto_server_ev_t *, char, 0, kh_req_hash_func, kh_req_hash_equal);
-static khash_t(server_ev_set) *active_servers = NULL;
 
 static void iproto_server_ev_io_cb(EV_P_ ev_io *w, int revents);
 static void iproto_server_ev_connect_timeout_cb(EV_P_ ev_timer *w, int revents);
@@ -52,17 +48,14 @@ void iproto_server_ev_start(iproto_server_ev_t *ev, struct ev_loop *loop, struct
     gettimeofday(&ev->start_time, NULL);
     ev->loop = loop;
     ev_timer_set(ev->connect_timeout, timeval2ev(*connect_timeout), 0);
-    int ret;
-    if (active_servers == NULL)
-        active_servers = kh_init(server_ev_set, NULL, realloc);
-    kh_put(server_ev_set, active_servers, ev, &ret);
+    iproto_ev_loop_add_server(loop, ev);
     ev_io_set(ev->io, iproto_server_get_fd(ev->server), EV_WRITE);
     ev_io_start(ev->loop, ev->io);
 }
 
 void iproto_server_ev_done(iproto_server_ev_t *ev, iproto_error_t error) {
-    khiter_t k = kh_get(server_ev_set, active_servers, ev);
-    kh_del(server_ev_set, active_servers, k);
+    assert(ev->loop != NULL);
+    iproto_ev_loop_remove_server(ev->loop, ev);
     ev_timer_stop(ev->loop, ev->connect_timeout);
     ev_io_stop(ev->loop, ev->io);
     ev->loop = NULL;
@@ -97,6 +90,11 @@ static void iproto_server_ev_post_handle(iproto_server_ev_t *ev, bool finish) {
     }
 }
 
+void iproto_server_ev_cancel(iproto_server_ev_t *ev, iproto_error_t error) {
+    iproto_server_handle_error(ev->server, error);
+    iproto_server_ev_post_handle(ev, true);
+}
+
 static void iproto_server_ev_io_cb(EV_P_ ev_io *w, int revents) {
     iproto_server_ev_t *ev = (iproto_server_ev_t *)w->data;
     iproto_server_t *server = ev->server;
@@ -112,18 +110,4 @@ static void iproto_server_ev_connect_timeout_cb(EV_P_ ev_timer *w, int revents) 
     ev_io_stop(EV_A_ ev->io);
     iproto_server_handle_error(server, ERR_CODE_TIMEOUT);
     iproto_server_ev_post_handle(ev, false);
-}
-
-void iproto_server_ev_active_done(iproto_error_t error) {
-    khiter_t k;
-    foreach (active_servers, k) {
-        iproto_server_ev_t *ev = kh_key(active_servers, k);
-        iproto_server_handle_error(ev->server, error);
-        iproto_server_ev_post_handle(ev, true);
-    }
-    kh_clear(server_ev_set, active_servers);
-}
-
-int iproto_server_ev_active_count(void) {
-    return kh_size(active_servers);
 }

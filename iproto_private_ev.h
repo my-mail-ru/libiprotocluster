@@ -18,8 +18,7 @@ void iproto_server_ev_connecting(iproto_server_ev_t *ev);
 void iproto_server_ev_connected(iproto_server_ev_t *ev);
 void iproto_server_ev_update_io(iproto_server_ev_t *ev, int set_events, int unset_events);
 void iproto_server_ev_done(iproto_server_ev_t *ev, iproto_error_t error);
-void iproto_server_ev_active_done(iproto_error_t error);
-int iproto_server_ev_active_count(void);
+void iproto_server_ev_cancel(iproto_server_ev_t *ev, iproto_error_t error);
 
 iproto_message_ev_t *iproto_message_ev_init(iproto_message_t *message);
 void iproto_message_ev_free(iproto_message_ev_t *ev);
@@ -28,5 +27,8 @@ struct ev_loop *iproto_message_ev_loop(iproto_message_ev_t *ev);
 void iproto_message_ev_dispatch(iproto_message_ev_t *ev, bool finish);
 void iproto_message_ev_start_timer(iproto_message_ev_t *ev);
 void iproto_message_ev_stop_timer(iproto_message_ev_t *ev);
+
+void iproto_ev_loop_add_server(struct ev_loop *loop, iproto_server_ev_t *ev);
+void iproto_ev_loop_remove_server(struct ev_loop *loop, iproto_server_ev_t *ev);
 
 #endif

@@ -7,11 +7,17 @@
 #include <math.h>
 #include <pthread.h>
 #include <libev/ev.h>
+#include "khash.h"
+
+KHASH_INIT(server_ev_set, iproto_server_ev_t *, char, 0, kh_req_hash_func, kh_req_hash_equal);
+
+typedef struct {
+    int messages_in_progress;
+    khash_t(server_ev_set) *active_servers;
+} iproto_ev_loop_data_t;
 
 static bool initialized = false;
 static iproto_stat_t *call_stat = NULL;
-static int messages_in_progress = 0;
-static struct ev_loop *gloop = NULL;
 
 static void iproto_atfork_child(void) {
     iproto_log(LOG_DEBUG | LOG_FORK, "fork() detected");
@@ -43,12 +49,18 @@ static void iproto_send(EV_P_ iproto_message_t *message) {
 }
 
 void iproto_bulk(iproto_message_t **messages, int nmessages, struct timeval *timeout) {
+    iproto_stat_maybe_flush();
+
     struct timeval begin;
     gettimeofday(&begin, NULL);
     iproto_error_t error = ERR_CODE_OK;
 
     struct ev_loop *loop = ev_loop_new(0);
-    gloop = loop;
+    iproto_ev_loop_data_t loop_data;
+    loop_data.messages_in_progress = 0;
+    loop_data.active_servers = kh_init(server_ev_set, NULL, realloc);
+    ev_set_userdata(loop, &loop_data);
+
     ev_timer *timer = NULL;
     if (timeout) {
         timer = malloc(sizeof(*timer));
@@ -58,22 +70,22 @@ void iproto_bulk(iproto_message_t **messages, int nmessages, struct timeval *tim
     }
 
     for (int i = 0; i < nmessages; i++) {
-        messages_in_progress++;
+        loop_data.messages_in_progress++;
         iproto_message_options(messages[i])->callback = iproto_bulk_message_cb;
         iproto_send(loop, messages[i]);
     }
 
     ev_run(loop, 0);
 
+    assert(loop_data.messages_in_progress == 0);
+    assert(kh_size(loop_data.active_servers) == 0);
+
     if (timer) {
         ev_timer_stop(loop, timer);
         free(timer);
     }
+    kh_destroy(server_ev_set, loop_data.active_servers);
     ev_loop_destroy(loop);
-    gloop = NULL;
-
-    assert(messages_in_progress == 0);
-    assert(iproto_server_ev_active_count() == 0);
 
     struct timeval end;
     gettimeofday(&end, NULL);
@@ -89,12 +101,32 @@ void iproto_do(iproto_message_t *message, struct timeval *timeout) {
 
 static void iproto_call_timeout_cb(EV_P_ ev_timer *w, int revents) {
     iproto_log(LOG_ERROR | LOG_EV, "call timeout");
-    iproto_server_ev_active_done(ERR_CODE_TIMEOUT);
+    iproto_ev_loop_data_t *loop_data = (iproto_ev_loop_data_t *)ev_userdata(loop);
+    khiter_t k;
+    foreach (loop_data->active_servers, k) {
+        iproto_server_ev_t *ev = kh_key(loop_data->active_servers, k);
+        iproto_server_ev_cancel(ev, ERR_CODE_TIMEOUT);
+    }
+    kh_clear(server_ev_set, loop_data->active_servers);
     *(iproto_error_t *)w->data = ERR_CODE_TIMEOUT;
 }
 
 static void iproto_bulk_message_cb(iproto_message_t *message) {
-    messages_in_progress--;
-    if (messages_in_progress == 0)
-        ev_break(gloop, EVBREAK_ONE);
+    iproto_message_ev_t *ev = iproto_message_get_ev(message);
+    struct ev_loop *loop = iproto_message_ev_loop(ev);
+    iproto_ev_loop_data_t *loop_data = (iproto_ev_loop_data_t *)ev_userdata(loop);
+    if (--loop_data->messages_in_progress == 0)
+        ev_break(loop, EVBREAK_ONE);
+}
+
+void iproto_ev_loop_add_server(struct ev_loop *loop, iproto_server_ev_t *ev) {
+    iproto_ev_loop_data_t *loop_data = (iproto_ev_loop_data_t *)ev_userdata(loop);
+    int ret;
+    kh_put(server_ev_set, loop_data->active_servers, ev, &ret);
+}
+
+void iproto_ev_loop_remove_server(struct ev_loop *loop, iproto_server_ev_t *ev) {
+    iproto_ev_loop_data_t *loop_data = (iproto_ev_loop_data_t *)ev_userdata(loop);
+    khiter_t k = kh_get(server_ev_set, loop_data->active_servers, ev);
+    kh_del(server_ev_set, loop_data->active_servers, k);
 }

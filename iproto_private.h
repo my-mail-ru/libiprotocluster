@@ -32,10 +32,9 @@ bool iproto_server_is_active(iproto_server_t *server, const struct timeval *serv
 int iproto_server_get_fd(iproto_server_t *server);
 void iproto_server_send(iproto_server_t *server, iproto_message_t *message);
 iproto_message_t *iproto_server_recv(iproto_server_t *server);
-void iproto_server_remove_message(iproto_server_t *server, iproto_message_t *message, struct iproto_request_t *request);
+void iproto_server_remove_message(iproto_server_t *server, iproto_message_t *message, struct iproto_request_t *request, iproto_error_t error);
 void iproto_server_handle_io(iproto_server_t *server, short revents);
 void iproto_server_handle_error(iproto_server_t *server, iproto_error_t error);
-void iproto_server_handle_message_timeout(iproto_server_t *server);
 void iproto_server_insert_request_stat(iproto_server_t *server, iproto_error_t error, struct timeval *start_time);
 void iproto_server_close_all(void);
 
@@ -56,6 +55,7 @@ iproto_stat_t *iproto_stat_init(const char *type, const char *server);
 void iproto_stat_free(iproto_stat_t *stat);
 void iproto_stat_insert(iproto_stat_t *stat, iproto_error_t error, struct timeval *start_time);
 void iproto_stat_insert_duration(iproto_stat_t *stat, iproto_error_t error, struct timeval *duration);
+void iproto_stat_maybe_flush(void);
 
 extern iproto_logmask_t iproto_logmask;
 

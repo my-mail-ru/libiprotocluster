@@ -147,7 +147,7 @@ int iproto_message_clear_requests(iproto_message_t *message, iproto_error_t erro
     int count = 0;
     struct server_request *entry;
     while ((entry = TAILQ_FIRST(&message->requests))) {
-        iproto_server_remove_message(entry->server, message, entry->request);
+        iproto_server_remove_message(entry->server, message, entry->request, error);
         TAILQ_REMOVE(&message->requests, entry, link);
         iproto_server_insert_request_stat(entry->server, error, &entry->start_time);
         free(entry);

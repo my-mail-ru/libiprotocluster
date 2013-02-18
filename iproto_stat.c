@@ -9,6 +9,7 @@ static time_t flush_time = 0;
 static time_t flush_interval = 15;
 
 static iproto_stat_callback_t *stat_callback = NULL;
+static bool in_stat_callback = false;
 
 KHASH_MAP_INIT_STR(iproto_stats, iproto_stat_t *);
 static khash_t(iproto_stats) *stats = NULL;
@@ -62,8 +63,11 @@ static void iproto_stat_send(iproto_stat_t *stat) {
         iproto_stat_data_t *entry = kh_value(stat->data, k);
         iproto_log(LOG_DEBUG | LOG_STAT, "stat: %s %s: %d.%06d [%d]", stat->key, iproto_error_string(error), entry->wallclock.tv_sec, entry->wallclock.tv_usec, entry->count);
         iproto_stat_graphite_send(stat->type, stat->server, error, entry);
-        if (stat_callback)
+        if (stat_callback) {
+            in_stat_callback = true;
             (*stat_callback)(stat->type, stat->server, error, entry);
+            in_stat_callback = false;
+        }
         free(entry);
     }
     kh_clear(iproto_stat_data, stat->data);
@@ -87,6 +91,7 @@ void iproto_stat_free(iproto_stat_t *stat) {
 }
 
 void iproto_stat_flush(void) {
+    if (in_stat_callback) return;
     if (stats) {
         khiter_t k;
         foreach (stats, k) {
@@ -98,7 +103,7 @@ void iproto_stat_flush(void) {
     flush_time = 0;
 }
 
-static void iproto_stat_maybe_flush(void) {
+void iproto_stat_maybe_flush(void) {
     if (flush_time) {
         if (time(NULL) >= flush_time) {
             iproto_stat_flush();
@@ -109,7 +114,7 @@ static void iproto_stat_maybe_flush(void) {
 }
 
 void iproto_stat_insert_duration(iproto_stat_t *stat, iproto_error_t error, struct timeval *duration) {
-    iproto_stat_maybe_flush();
+    if (in_stat_callback) return;
     khiter_t k = kh_get(iproto_stat_data, stat->data, error);
     if (k == kh_end(stat->data)) {
         int ret;
