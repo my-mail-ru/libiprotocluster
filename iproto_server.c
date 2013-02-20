@@ -85,7 +85,7 @@ static void iproto_server_close(iproto_server_t *server) {
     li_close(server->connection);
     if (server->status != NotConnected) {
         if (server->status != ConnectInProgress)
-            iproto_server_log(server, LOG_INFO | LOG_CONNECT, "disconnected");
+            iproto_server_log(server, LOG_DEBUG | LOG_CONNECT, "disconnected");
         server->status = NotConnected;
     }
 }
@@ -156,7 +156,7 @@ static iproto_error_t iproto_server_connect(iproto_server_t *server) {
         case ERR_CODE_OK:
             server->status = Connected;
             memset(&server->last_error_time, 0, sizeof(struct timeval));
-            iproto_server_log(server, LOG_INFO | LOG_CONNECT, "connected");
+            iproto_server_log(server, LOG_DEBUG | LOG_CONNECT, "connected");
             iproto_server_ev_connected(server->ev);
             khiter_t k;
             foreach (server->in_progress, k) {
