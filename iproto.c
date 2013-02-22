@@ -17,6 +17,7 @@ typedef struct {
 } iproto_ev_loop_data_t;
 
 static bool initialized = false;
+static struct ev_loop *iproto_loop = NULL;
 static iproto_stat_t *call_stat = NULL;
 
 static void iproto_atfork_child(void) {
@@ -32,10 +33,21 @@ void iproto_initialize(void) {
 }
 
 void iproto_init_globals(void) {
+    iproto_loop = ev_loop_new(0);
+    iproto_ev_loop_data_t *loop_data = malloc(sizeof(*loop_data));
+    loop_data->messages_in_progress = 0;
+    loop_data->active_servers = kh_init(server_ev_set, NULL, realloc);
+    ev_set_userdata(iproto_loop, loop_data);
+    ev_suspend(iproto_loop);
     call_stat = iproto_stat_init("call", NULL);
 }
 
 void iproto_free_globals(void) {
+    ev_resume(iproto_loop);
+    iproto_ev_loop_data_t *loop_data = (iproto_ev_loop_data_t *)ev_userdata(iproto_loop);
+    kh_destroy(server_ev_set, loop_data->active_servers);
+    free(loop_data);
+    ev_loop_destroy(iproto_loop);
     iproto_stat_free(call_stat);
 }
 
@@ -55,11 +67,9 @@ void iproto_bulk(iproto_message_t **messages, int nmessages, struct timeval *tim
     gettimeofday(&begin, NULL);
     iproto_error_t error = ERR_CODE_OK;
 
-    struct ev_loop *loop = ev_loop_new(0);
-    iproto_ev_loop_data_t loop_data;
-    loop_data.messages_in_progress = 0;
-    loop_data.active_servers = kh_init(server_ev_set, NULL, realloc);
-    ev_set_userdata(loop, &loop_data);
+    struct ev_loop *loop = iproto_loop;
+    ev_resume(loop);
+    iproto_ev_loop_data_t *loop_data = (iproto_ev_loop_data_t *)ev_userdata(iproto_loop);
 
     ev_timer *timer = NULL;
     if (timeout) {
@@ -70,22 +80,21 @@ void iproto_bulk(iproto_message_t **messages, int nmessages, struct timeval *tim
     }
 
     for (int i = 0; i < nmessages; i++) {
-        loop_data.messages_in_progress++;
+        loop_data->messages_in_progress++;
         iproto_message_options(messages[i])->callback = iproto_bulk_message_cb;
         iproto_send(loop, messages[i]);
     }
 
     ev_run(loop, 0);
 
-    assert(loop_data.messages_in_progress == 0);
-    assert(kh_size(loop_data.active_servers) == 0);
+    assert(loop_data->messages_in_progress == 0);
+    assert(kh_size(loop_data->active_servers) == 0);
 
     if (timer) {
         ev_timer_stop(loop, timer);
         free(timer);
     }
-    kh_destroy(server_ev_set, loop_data.active_servers);
-    ev_loop_destroy(loop);
+    ev_suspend(loop);
 
     struct timeval end;
     gettimeofday(&end, NULL);
