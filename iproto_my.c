@@ -22,26 +22,32 @@ static void iproto_pinger_update(void) {
     int shmid = shmget(0x2afedead, 65536, 0);
     if (shmid != -1) {
         void *data = shmat(shmid, NULL, SHM_RDONLY);
-        char *str = (char *)data;
-        char *next;
-        while (str && (next = strstr(str, "iproto:"))) {
-            next += 7;
-            char *hostport;
-            char *end = index(next, ',');
-            if (end) {
-                size_t len = end - next;
-                hostport = malloc(len + 1);
-                memcpy(hostport, next, len);
-                hostport[len] = '\0';
-            } else {
-                hostport = strdup(next);
+        if (data == (void *)-1) {
+            iproto_log(LOG_WARNING, "failed to shmat() pinger shared memory: %m");
+        } else if (data == NULL) {
+            iproto_log(LOG_WARNING, "failed to shmat() pinger shared memory: NULL");
+        } else {
+            char *str = (char *)data;
+            char *next;
+            while (str && (next = strstr(str, "iproto:"))) {
+                next += 7;
+                char *hostport;
+                char *end = index(next, ',');
+                if (end) {
+                    size_t len = end - next;
+                    hostport = malloc(len + 1);
+                    memcpy(hostport, next, len);
+                    hostport[len] = '\0';
+                } else {
+                    hostport = strdup(next);
+                }
+                int ret;
+                khiter_t k = kh_put(pinger_servers, pinger_servers, hostport, &ret);
+                kh_value(pinger_servers, k) = false;
+                str = end;
             }
-            int ret;
-            khiter_t k = kh_put(pinger_servers, pinger_servers, hostport, &ret);
-            kh_value(pinger_servers, k) = false;
-            str = end;
+            shmdt(data);
         }
-        shmdt(data);
     } else {
         iproto_log(LOG_WARNING, "failed to shmget() pinger shared memory: %m");
     }
