@@ -263,7 +263,7 @@ void iproto_server_handle_io(iproto_server_t *server, short revents) {
             case ERR_CODE_CONNECT_ERR:
                 iproto_server_log(server, LOG_ERROR | LOG_IO, "read error");
                 iproto_server_handle_error(server, status);
-                break;
+                return;
             case ERR_CODE_OK:
                 iproto_server_log(server, LOG_DEBUG | LOG_IO, "not all data read");
                 iproto_server_ev_update_io(server->ev, EV_READ, 0);
@@ -288,7 +288,7 @@ void iproto_server_handle_io(iproto_server_t *server, short revents) {
             case ERR_CODE_CONNECT_ERR:
                 iproto_server_log(server, LOG_ERROR | LOG_IO, "write error");
                 iproto_server_handle_error(server, status);
-                break;
+                return;
             case ERR_CODE_OK:
                 iproto_server_log(server, LOG_DEBUG | LOG_IO, "not all data written");
                 iproto_server_ev_update_io(server->ev, EV_WRITE | EV_READ, 0);
