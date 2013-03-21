@@ -212,14 +212,7 @@ void iproto_server_send(iproto_server_t *server, iproto_message_t *message) {
     }
 }
 
-iproto_message_t *iproto_server_recv(iproto_server_t *server) {
-    struct message_entry *entry = TAILQ_FIRST(&server->failed);
-    if (entry) {
-        TAILQ_REMOVE(&server->failed, entry, link);
-        iproto_message_t *message = entry->message;
-        free(entry);
-        return message;
-    }
+static iproto_message_t *iproto_server_recv_request(iproto_server_t *server) {
     iproto_message_t *message;
     struct iproto_request_t *request;
     while (1) {
@@ -246,6 +239,17 @@ iproto_message_t *iproto_server_recv(iproto_server_t *server) {
     return message;
 }
 
+iproto_message_t *iproto_server_recv(iproto_server_t *server) {
+    struct message_entry *entry = TAILQ_FIRST(&server->failed);
+    if (entry) {
+        TAILQ_REMOVE(&server->failed, entry, link);
+        iproto_message_t *message = entry->message;
+        free(entry);
+        return message;
+    }
+    return iproto_server_recv_request(server);
+}
+
 static void iproto_server_mark_error(iproto_server_t *server) {
     gettimeofday(&server->last_error_time, NULL);
     khiter_t k;
@@ -261,6 +265,7 @@ void iproto_server_handle_io(iproto_server_t *server, short revents) {
         iproto_error_t status = li_read(server->connection);
         switch (status) {
             case ERR_CODE_CONNECT_ERR:
+            case ERR_CODE_PROTO_ERR:
                 iproto_server_log(server, LOG_ERROR | LOG_IO, "read error");
                 iproto_server_handle_error(server, status);
                 return;
@@ -306,9 +311,15 @@ void iproto_server_handle_io(iproto_server_t *server, short revents) {
 
 void iproto_server_handle_error(iproto_server_t *server, iproto_error_t error) {
     iproto_server_log(server, LOG_ERROR, "%s [%d]", iproto_error_string(error), error);
+    iproto_message_t *message;
+    while ((message = iproto_server_recv_request(server))) {
+        struct message_entry *entry = malloc(sizeof(*entry));
+        entry->message = message;
+        TAILQ_INSERT_TAIL(&server->failed, entry, link);
+    }
     khiter_t k;
     foreach (server->in_progress, k) {
-        iproto_message_t *message = kh_value(server->in_progress, k);
+        message = kh_value(server->in_progress, k);
         iproto_message_set_response(message, server, error, NULL, 0);
         struct message_entry *entry = malloc(sizeof(*entry));
         entry->message = message;
