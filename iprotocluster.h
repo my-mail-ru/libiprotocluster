@@ -4,15 +4,16 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#include <iproto_def.h>
 #include <libiproto.h>
 
 #define IPROTO_ERR_CODE_FLAG ((0x80 << 16) | LIBIPROTO_ERR_CODE_FLAG)
+#define IPROTO_ERROR_CODES_OK(_) \
+    _(ERR_CODE_OK,                (0x00), "ok")
 #define IPROTO_ERROR_CODES(_) \
     _(ERR_CODE_TIMEOUT,           (0x01 << 16) | (IPROTO_ERR_CODE_FLAG | TEMPORARY_ERR_CODE_FLAG), "timeout") \
     _(ERR_CODE_INVALID_SHARD_NUM, (0x03 << 16) | (IPROTO_ERR_CODE_FLAG | FATAL_ERR_CODE_FLAG), "invalid shard_num") \
     _(ERR_CODE_LOSE_EARLY_RETRY,  (0x04 << 16) | (IPROTO_ERR_CODE_FLAG), "lose early retry")
-#define IPROTO_ALL_ERROR_CODES(x) IPROTO_ERROR_CODES(x) LIBIPROTO_ERROR_CODES(x) ERROR_CODES(x)
+#define IPROTO_ALL_ERROR_CODES(x) IPROTO_ERROR_CODES_OK(x) IPROTO_ERROR_CODES(x) LIBIPROTO_ERROR_CODES(x)
 #ifndef ERR_CODES_ENUM
 typedef enum iproto_error ENUM_INITIALIZER(IPROTO_ALL_ERROR_CODES) iproto_error_t;
 #else
