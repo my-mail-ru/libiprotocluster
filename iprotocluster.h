@@ -37,13 +37,14 @@ typedef enum iproto_from ENUM_NOVAL_INITIALIZER(IPROTO_FROM) iproto_from_t;
     _(RETRY_SAME,    0x04)
 typedef enum iproto_retry ENUM_INITIALIZER(IPROTO_RETRY) iproto_retry_t;
 
-#define IPROTO_LOGMASK(_) \
+#define IPROTO_LOGLEVEL(_) \
     _(LOG_NOTHING,  0x00) \
     _(LOG_ERROR,    0x01) \
     _(LOG_WARNING,  0x02) \
     _(LOG_INFO,     0x03) \
     _(LOG_DEBUG,    0x04) \
-    _(LOG_LEVEL,    0xff) \
+    _(LOG_LEVEL,    0xff)
+#define IPROTO_LOGTYPE(_) \
     _(LOG_DATA,     (0x000001 << 8)) \
     _(LOG_CONNECT,  (0x000002 << 8)) \
     _(LOG_IO,       (0x000004 << 8)) \
@@ -54,6 +55,7 @@ typedef enum iproto_retry ENUM_INITIALIZER(IPROTO_RETRY) iproto_retry_t;
     _(LOG_STAT,     (0x000080 << 8)) \
     _(LOG_GRAPHITE, (0x000100 << 8)) \
     _(LOG_TYPE,     (0xffffff << 8))
+#define IPROTO_LOGMASK(_) IPROTO_LOGLEVEL(_) IPROTO_LOGTYPE(_)
 enum iproto_logmask ENUM_INITIALIZER(IPROTO_LOGMASK);
 typedef enum iproto_logmask iproto_logmask_t;
 
@@ -101,6 +103,7 @@ iproto_cluster_t *iproto_cluster_init(void);
 void iproto_cluster_free(iproto_cluster_t *cluster);
 iproto_cluster_opts_t *iproto_cluster_options(iproto_cluster_t *cluster);
 void iproto_cluster_add_shard(iproto_cluster_t *cluster, iproto_shard_t *shard);
+int iproto_cluster_get_shard_count(iproto_cluster_t *cluster);
 void iproto_cluster_bulk(iproto_cluster_t *cluster, iproto_message_t **messages, int nmessages, struct timeval *timeout);
 void iproto_cluster_do(iproto_cluster_t *cluster, iproto_message_t *message, struct timeval *timeout);
 

@@ -44,6 +44,10 @@ void iproto_cluster_add_shard(iproto_cluster_t *cluster, iproto_shard_t *shard) 
     cluster->shards.a[cluster->shards.n - 1] = shard;
 }
 
+int iproto_cluster_get_shard_count(iproto_cluster_t *cluster) {
+    return cluster->shards.n;
+}
+
 static iproto_shard_t *iproto_cluster_get_shard(iproto_cluster_t *cluster, iproto_message_t *message) {
     unsigned shard_num = iproto_message_options(message)->shard_num;
     if (shard_num == 0 && cluster->shards.n == 1) {
