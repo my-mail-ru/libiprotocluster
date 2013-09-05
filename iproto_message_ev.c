@@ -135,14 +135,18 @@ void iproto_message_ev_dispatch(iproto_message_ev_t *ev, bool finish) {
 
 static void iproto_message_ev_early_timeout_cb(EV_P_ ev_timer *w, int revents) {
     iproto_message_ev_t *ev = (iproto_message_ev_t *)w->data;
-    iproto_log(LOG_WARNING | LOG_EV, "message %p: early timeout", ev->message);
+    iproto_message_opts_t *opts = iproto_message_options(ev->message);
+    iproto_log(LOG_WARNING | LOG_EV, "message %p: early timeout (%d.%06d), server %s",
+        ev->message, opts->early_timeout.tv_sec, opts->early_timeout.tv_usec, iproto_server_hostport(ev->last_server));
     ev_timer_stop(EV_A_ w);
     iproto_message_ev_early_retry(ev);
 }
 
 static void iproto_message_ev_timeout_cb(EV_P_ ev_timer *w, int revents) {
     iproto_message_ev_t *ev = (iproto_message_ev_t *)w->data;
-    iproto_log(LOG_WARNING | LOG_EV, "message %p: timeout", ev->message);
+    iproto_message_opts_t *opts = iproto_message_options(ev->message);
+    iproto_log(LOG_WARNING | LOG_EV, "message %p: timeout (%d.%06d), server %s",
+        ev->message, opts->timeout.tv_sec, opts->timeout.tv_usec, iproto_server_hostport(ev->last_server));
     ev_timer_stop(EV_A_ w);
     assert(iproto_message_in_progress(ev->message));
     iproto_message_set_response(ev->message, ev->last_server, ERR_CODE_TIMEOUT, NULL, 0);

@@ -115,6 +115,8 @@ iproto_server_t *iproto_shard_get_server(iproto_shard_t *shard, iproto_message_t
         }
     }
     iproto_log(LOG_WARNING, "no active servers found for message %p", message);
+    if (not_servers == NULL)
+        iproto_message_set_response(message, NULL, ERR_CODE_NO_SERVER_AVAILABLE, NULL, 0);
     return NULL;
 }
 

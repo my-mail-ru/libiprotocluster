@@ -54,10 +54,16 @@ void iproto_free_globals(void) {
 static void iproto_call_timeout_cb(EV_P_ ev_timer *w, int revents);
 static void iproto_bulk_message_cb(iproto_message_t *message);
 
-static void iproto_send(EV_P_ iproto_message_t *message) {
-    iproto_message_ev_t *ev = iproto_message_get_ev(message);
-    iproto_message_ev_start(ev, loop);
-    iproto_message_ev_dispatch(ev, false);
+static bool iproto_send(EV_P_ iproto_message_t *message) {
+    if (iproto_message_get_cluster(message)) {
+        iproto_message_ev_t *ev = iproto_message_get_ev(message);
+        iproto_message_ev_start(ev, loop);
+        iproto_message_ev_dispatch(ev, false);
+        return true;
+    } else {
+        iproto_message_set_response(message, NULL, ERR_CODE_CLUSTER_NOT_SET, NULL, 0);
+        return false;
+    }
 }
 
 void iproto_bulk(iproto_message_t **messages, int nmessages, struct timeval *timeout) {
@@ -80,12 +86,13 @@ void iproto_bulk(iproto_message_t **messages, int nmessages, struct timeval *tim
     }
 
     for (int i = 0; i < nmessages; i++) {
-        loop_data->messages_in_progress++;
         iproto_message_options(messages[i])->callback = iproto_bulk_message_cb;
-        iproto_send(loop, messages[i]);
+        if (iproto_send(loop, messages[i]))
+            loop_data->messages_in_progress++;
     }
 
-    ev_run(loop, 0);
+    if (loop_data->messages_in_progress != 0)
+        ev_run(loop, 0);
 
     assert(loop_data->messages_in_progress == 0);
     assert(kh_size(loop_data->active_servers) == 0);

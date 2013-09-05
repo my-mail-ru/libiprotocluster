@@ -38,8 +38,6 @@ void iproto_server_handle_error(iproto_server_t *server, iproto_error_t error);
 void iproto_server_insert_request_stat(iproto_server_t *server, iproto_error_t error, struct timeval *start_time);
 void iproto_server_close_all(void);
 
-iproto_cluster_t *iproto_message_get_cluster(iproto_message_t *message);
-void iproto_message_set_cluster(iproto_message_t *message, iproto_cluster_t *cluster);
 bool iproto_message_in_progress(iproto_message_t *message);
 bool iproto_message_soft_retry(iproto_message_t *message, struct timeval *delay);
 bool iproto_message_can_try(iproto_message_t *message);

@@ -10,9 +10,11 @@
 #define IPROTO_ERROR_CODES_OK(_) \
     _(ERR_CODE_OK,                (0x00), "ok")
 #define IPROTO_ERROR_CODES(_) \
-    _(ERR_CODE_TIMEOUT,           (0x01 << 16) | (IPROTO_ERR_CODE_FLAG | TEMPORARY_ERR_CODE_FLAG), "timeout") \
-    _(ERR_CODE_INVALID_SHARD_NUM, (0x03 << 16) | (IPROTO_ERR_CODE_FLAG | FATAL_ERR_CODE_FLAG), "invalid shard_num") \
-    _(ERR_CODE_LOSE_EARLY_RETRY,  (0x04 << 16) | (IPROTO_ERR_CODE_FLAG), "lose early retry")
+    _(ERR_CODE_TIMEOUT,             (0x01 << 16) | (IPROTO_ERR_CODE_FLAG | TEMPORARY_ERR_CODE_FLAG), "timeout") \
+    _(ERR_CODE_CLUSTER_NOT_SET,     (0x02 << 16) | (IPROTO_ERR_CODE_FLAG | FATAL_ERR_CODE_FLAG), "cluster not set") \
+    _(ERR_CODE_INVALID_SHARD_NUM,   (0x03 << 16) | (IPROTO_ERR_CODE_FLAG | FATAL_ERR_CODE_FLAG), "invalid shard_num") \
+    _(ERR_CODE_LOSE_EARLY_RETRY,    (0x04 << 16) | (IPROTO_ERR_CODE_FLAG), "lose early retry") \
+    _(ERR_CODE_NO_SERVER_AVAILABLE, (0x05 << 16) | (IPROTO_ERR_CODE_FLAG | TEMPORARY_ERR_CODE_FLAG), "no server available")
 #define IPROTO_ALL_ERROR_CODES(x) IPROTO_ERROR_CODES_OK(x) IPROTO_ERROR_CODES(x) LIBIPROTO_ERROR_CODES(x)
 #ifndef ERR_CODES_ENUM
 typedef enum iproto_error ENUM_INITIALIZER(IPROTO_ALL_ERROR_CODES) iproto_error_t;
@@ -119,6 +121,8 @@ void iproto_message_free(iproto_message_t *message);
 iproto_message_opts_t *iproto_message_options(iproto_message_t *message);
 iproto_error_t iproto_message_error(iproto_message_t *message);
 void *iproto_message_response(iproto_message_t *message, size_t *size, bool *replica);
+iproto_cluster_t *iproto_message_get_cluster(iproto_message_t *message);
+void iproto_message_set_cluster(iproto_message_t *message, iproto_cluster_t *cluster);
 
 void iproto_stat_set_callback(iproto_stat_callback_t *callback);
 void iproto_stat_set_flush_interval(time_t interval);
