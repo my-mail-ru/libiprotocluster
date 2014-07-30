@@ -60,6 +60,7 @@ typedef enum iproto_retry ENUM_INITIALIZER(IPROTO_RETRY) iproto_retry_t;
 #define IPROTO_LOGMASK(_) IPROTO_LOGLEVEL(_) IPROTO_LOGTYPE(_)
 enum iproto_logmask ENUM_INITIALIZER(IPROTO_LOGMASK);
 typedef enum iproto_logmask iproto_logmask_t;
+typedef void iproto_logfunc_t(iproto_logmask_t mask, const char *str);
 
 typedef struct iproto_cluster iproto_cluster_t;
 typedef struct iproto_shard iproto_shard_t;
@@ -97,6 +98,7 @@ typedef void iproto_stat_callback_t(const char *type, const char *server, iproto
 
 void iproto_initialize(void);
 void iproto_set_logmask(iproto_logmask_t mask);
+void iproto_set_logfunc(iproto_logfunc_t func);
 
 void iproto_bulk(iproto_message_t **messages, int nmessages, struct timeval *timeout);
 void iproto_do(iproto_message_t *message, struct timeval *timeout);
