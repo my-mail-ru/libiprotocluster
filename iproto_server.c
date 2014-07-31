@@ -2,10 +2,12 @@
 #include "iproto_private_ev.h"
 
 #include <assert.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
 #include <sys/queue.h>
+#include <unistd.h>
 #include <libev/ev.h>
 #include "khash.h"
 
@@ -46,6 +48,8 @@ static int arena_pool_refcnt = 0;
 
 #define iproto_server_log_data(server, mask, data, size, format, ...) \
     iproto_log_data(mask, data, size, "server %s:%d: " format, server->host, server->port, ##__VA_ARGS__)
+
+static void iproto_server_mark_error(iproto_server_t *server);
 
 iproto_server_t *iproto_server_init(char *host, int port) {
     if (!server_pool)
@@ -181,12 +185,51 @@ static iproto_error_t iproto_server_connect(iproto_server_t *server) {
     return status;
 }
 
+static void iproto_server_check_connection(iproto_server_t *server) {
+    if (server->status != Connected)
+        return;
+    iproto_error_t status = li_read(server->connection);
+    switch (status) {
+        case ERR_CODE_CONNECT_ERR:
+        case ERR_CODE_PROTO_ERR:
+            iproto_server_log(server, LOG_ERROR | LOG_IO, "check connection: read error");
+            iproto_server_close(server);
+            iproto_server_mark_error(server);
+            return;
+        case ERR_CODE_OK:
+            iproto_server_log(server, LOG_DEBUG | LOG_IO, "check connecton: not all data read");
+            return;
+        case ERR_CODE_NOTHING_TO_DO:
+            break;
+        default:
+            iproto_server_log(server, LOG_ERROR | LOG_IO, "check connection: unknown li_read() error code: %u", status);
+            abort();
+    }
+    char buf;
+    int fd = li_get_fd(server->connection);
+    int r = read(fd, &buf, sizeof(buf));
+    if (r == 0) {
+        iproto_server_log(server, LOG_WARNING | LOG_IO, "check connection: connection closed by server");
+        iproto_server_close(server);
+    } else if (r > 0) {
+        iproto_server_log(server, LOG_ERROR | LOG_IO, "check connection: unexpected data read from socket");
+        iproto_server_close(server);
+        iproto_server_mark_error(server);
+    } else if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+        iproto_server_log(server, LOG_ERROR | LOG_IO, "check connection: failed to read from socket: %s", strerror(errno));
+        iproto_server_close(server);
+        iproto_server_mark_error(server);
+    }
+}
+
 int iproto_server_get_fd(iproto_server_t *server) {
     if (server->status == NotConnected) iproto_server_connect(server);
     return li_get_fd(server->connection);
 }
 
 void iproto_server_send(iproto_server_t *server, iproto_message_t *message) {
+    if (kh_size(server->in_progress) == 0)
+        iproto_server_check_connection(server);
     iproto_message_ev_t *mev = iproto_message_get_ev(message);
     void *data;
     size_t size;

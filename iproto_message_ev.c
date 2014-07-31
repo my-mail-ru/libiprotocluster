@@ -71,6 +71,7 @@ void iproto_message_ev_stop_timer(iproto_message_ev_t *ev) {
 }
 
 static void iproto_message_ev_done(iproto_message_ev_t *ev) {
+    assert(iproto_message_error(ev->message) != ERR_CODE_REQUEST_IN_PROGRESS);
     iproto_message_opts_t *opts = iproto_message_options(ev->message);
     if (opts->callback)
         opts->callback(ev->message);
