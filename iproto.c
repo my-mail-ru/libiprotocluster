@@ -23,6 +23,8 @@ static iproto_stat_t *call_stat = NULL;
 static void iproto_atfork_child(void) {
     iproto_log(LOG_DEBUG | LOG_FORK, "fork() detected");
     iproto_server_close_all();
+    if (iproto_loop)
+        ev_loop_fork(iproto_loop);
 }
 
 void iproto_initialize(void) {
@@ -48,6 +50,7 @@ void iproto_free_globals(void) {
     kh_destroy(server_ev_set, loop_data->active_servers);
     free(loop_data);
     ev_loop_destroy(iproto_loop);
+    iproto_loop = NULL;
     iproto_stat_free(call_stat);
 }
 
