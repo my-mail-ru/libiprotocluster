@@ -47,6 +47,7 @@ void iproto_message_set_response(iproto_message_t *message, iproto_server_t *ser
 void iproto_message_insert_request(iproto_message_t *message, iproto_server_t *server, struct iproto_request_t *request);
 void iproto_message_remove_request(iproto_message_t *message, iproto_server_t *server, struct iproto_request_t *request);
 int iproto_message_clear_requests(iproto_message_t *message, iproto_error_t error);
+void iproto_message_while_request_server(iproto_message_t *message, void (*callback)(iproto_server_t *server));
 struct timeval *iproto_message_request_start_time(iproto_message_t *message, iproto_server_t *server);
 
 iproto_stat_t *iproto_stat_init(const char *type, const char *server);

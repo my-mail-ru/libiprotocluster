@@ -160,6 +160,13 @@ bool iproto_message_in_progress(iproto_message_t *message) {
     return TAILQ_FIRST(&message->requests) != NULL;
 }
 
+void iproto_message_while_request_server(iproto_message_t *message, void (*callback)(iproto_server_t *server)) {
+    struct server_request *entry;
+    while ((entry = TAILQ_FIRST(&message->requests))) {
+        callback(entry->server);
+    }
+}
+
 struct timeval *iproto_message_request_start_time(iproto_message_t *message, iproto_server_t *server) {
     int count = 0;
     struct timeval *start_time = NULL;

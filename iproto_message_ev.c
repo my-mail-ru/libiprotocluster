@@ -4,7 +4,6 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
-#include <libev/ev.h>
 
 struct iproto_message_ev {
     iproto_message_t *message;
@@ -13,24 +12,24 @@ struct iproto_message_ev {
     ev_timer *timeout;
     ev_timer *soft_retry_timer;
     iproto_server_t *last_server;
+    void *data;
 };
 
-static void iproto_message_ev_early_timeout_cb(EV_P_ ev_timer *w, int revents);
-static void iproto_message_ev_timeout_cb(EV_P_ ev_timer *w, int revents);
-static void iproto_message_ev_soft_retry_cb(EV_P_ ev_timer *w, int revents);
+static void iproto_message_ev_early_timeout_cb(struct ev_loop *loop, ev_timer *w, int revents);
+static void iproto_message_ev_timeout_cb(struct ev_loop *loop, ev_timer *w, int revents);
+static void iproto_message_ev_soft_retry_cb(struct ev_loop *loop, ev_timer *w, int revents);
 
 iproto_message_ev_t *iproto_message_ev_init(iproto_message_t *message) {
     iproto_message_ev_t *ev = malloc(sizeof(*ev));
     memset(ev, 0, sizeof(*ev));
     ev->message = message;
-    ev->timeout = malloc(sizeof(*ev->timeout));
-    ev->timeout->data = ev;
-    ev_init(ev->timeout, iproto_message_ev_timeout_cb);
+    ev->timeout = ev_timer_new(iproto_message_ev_timeout_cb);
+    ev_timer_set_data(ev->timeout, ev);
     return ev;
 }
 
 void iproto_message_ev_free(iproto_message_ev_t *ev) {
-    free(ev->timeout);
+    ev_timer_free(ev->timeout);
     free(ev);
 }
 
@@ -38,9 +37,9 @@ void iproto_message_ev_start(iproto_message_ev_t *ev, struct ev_loop *loop) {
     ev->loop = loop;
     iproto_message_opts_t *opts = iproto_message_options(ev->message);
     if (opts->retry & RETRY_EARLY) {
-        ev->early_timeout = malloc(sizeof(*ev->early_timeout));
-        ev->early_timeout->data = ev;
-        ev_timer_init(ev->early_timeout, iproto_message_ev_early_timeout_cb, timeval2ev(opts->early_timeout), 0);
+        ev->early_timeout = ev_timer_new(iproto_message_ev_early_timeout_cb);
+        ev_timer_set_data(ev->early_timeout, ev);
+        ev_timer_set(ev->early_timeout, timeval2ev(opts->early_timeout), 0);
         ev_timer_start(loop, ev->early_timeout);
     }
     ev_timer_set(ev->timeout, 0, timeval2ev(opts->timeout));
@@ -49,12 +48,12 @@ void iproto_message_ev_start(iproto_message_ev_t *ev, struct ev_loop *loop) {
 static void iproto_message_ev_stop(iproto_message_ev_t *ev) {
     if (ev->early_timeout) {
         ev_timer_stop(ev->loop, ev->early_timeout);
-        free(ev->early_timeout);
+        ev_timer_free(ev->early_timeout);
     }
     ev_timer_stop(ev->loop, ev->timeout);
     if (ev->soft_retry_timer) {
         ev_timer_stop(ev->loop, ev->soft_retry_timer);
-        free(ev->soft_retry_timer);
+        ev_timer_free(ev->soft_retry_timer);
     }
 }
 
@@ -73,21 +72,20 @@ void iproto_message_ev_stop_timer(iproto_message_ev_t *ev) {
 static void iproto_message_ev_done(iproto_message_ev_t *ev) {
     assert(iproto_message_error(ev->message) != ERR_CODE_REQUEST_IN_PROGRESS);
     iproto_message_opts_t *opts = iproto_message_options(ev->message);
+    iproto_message_ev_stop(ev);
     if (opts->callback)
         opts->callback(ev->message);
-    iproto_message_ev_stop(ev);
 }
 
 static void iproto_message_ev_soft_retry(iproto_message_ev_t *ev, struct timeval *delay) {
     iproto_log(LOG_DEBUG | LOG_EV, "message %p: soft retry after %d.%06d sec.", ev->message, delay->tv_sec, delay->tv_usec);
     if (!ev->soft_retry_timer) {
-        ev->soft_retry_timer = malloc(sizeof(*ev->soft_retry_timer));
-        ev->soft_retry_timer->data = ev;
-        ev_timer_init(ev->soft_retry_timer, iproto_message_ev_soft_retry_cb, timeval2ev(*delay), 0);
+        ev->soft_retry_timer = ev_timer_new(iproto_message_ev_soft_retry_cb);
+        ev_timer_set_data(ev->soft_retry_timer, ev);
     } else {
         ev_timer_stop(ev->loop, ev->soft_retry_timer);
-        ev_timer_set(ev->soft_retry_timer, timeval2ev(*delay), 0);
     }
+    ev_timer_set(ev->soft_retry_timer, timeval2ev(*delay), 0);
     ev_timer_start(ev->loop, ev->soft_retry_timer);
 }
 
@@ -134,30 +132,38 @@ void iproto_message_ev_dispatch(iproto_message_ev_t *ev, bool finish) {
     }
 }
 
-static void iproto_message_ev_early_timeout_cb(EV_P_ ev_timer *w, int revents) {
-    iproto_message_ev_t *ev = (iproto_message_ev_t *)w->data;
+void iproto_message_ev_set_data(iproto_message_ev_t *ev, void *data) {
+    ev->data = data;
+}
+
+void *iproto_message_ev_data(iproto_message_ev_t *ev) {
+    return ev->data;
+}
+
+static void iproto_message_ev_early_timeout_cb(struct ev_loop *loop, ev_timer *w, int revents) {
+    iproto_message_ev_t *ev = (iproto_message_ev_t *)ev_timer_data(w);
     iproto_message_opts_t *opts = iproto_message_options(ev->message);
     iproto_log(LOG_WARNING | LOG_EV, "message %p: early timeout (%d.%06d), server %s",
         ev->message, opts->early_timeout.tv_sec, opts->early_timeout.tv_usec, iproto_server_hostport(ev->last_server));
-    ev_timer_stop(EV_A_ w);
+    ev_timer_stop(loop, w);
     iproto_message_ev_early_retry(ev);
 }
 
-static void iproto_message_ev_timeout_cb(EV_P_ ev_timer *w, int revents) {
-    iproto_message_ev_t *ev = (iproto_message_ev_t *)w->data;
+static void iproto_message_ev_timeout_cb(struct ev_loop *loop, ev_timer *w, int revents) {
+    iproto_message_ev_t *ev = (iproto_message_ev_t *)ev_timer_data(w);
     iproto_message_opts_t *opts = iproto_message_options(ev->message);
     iproto_log(LOG_WARNING | LOG_EV, "message %p: timeout (%d.%06d), server %s",
         ev->message, opts->timeout.tv_sec, opts->timeout.tv_usec, iproto_server_hostport(ev->last_server));
-    ev_timer_stop(EV_A_ w);
+    ev_timer_stop(loop, w);
     assert(iproto_message_in_progress(ev->message));
     iproto_message_set_response(ev->message, ev->last_server, ERR_CODE_TIMEOUT, NULL, 0);
     iproto_message_clear_requests(ev->message, ERR_CODE_TIMEOUT);
     iproto_message_ev_dispatch(ev, false);
 }
 
-static void iproto_message_ev_soft_retry_cb(EV_P_ ev_timer *w, int revents) {
-    iproto_message_ev_t *ev = (iproto_message_ev_t *)w->data;
+static void iproto_message_ev_soft_retry_cb(struct ev_loop *loop, ev_timer *w, int revents) {
+    iproto_message_ev_t *ev = (iproto_message_ev_t *)ev_timer_data(w);
     iproto_log(LOG_DEBUG | LOG_EV, "message %p: soft retry timer", ev->message);
-    ev_timer_stop(EV_A_ w);
+    ev_timer_stop(loop, w);
     iproto_message_ev_dispatch(ev, false);
 }

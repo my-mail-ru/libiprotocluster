@@ -8,7 +8,6 @@
 #include <sys/time.h>
 #include <sys/queue.h>
 #include <unistd.h>
-#include <libev/ev.h>
 #include "khash.h"
 
 KHASH_INIT(server_shards, iproto_shard_t *, int, 1, kh_req_hash_func, kh_req_hash_equal);
@@ -120,6 +119,10 @@ void iproto_server_free(iproto_server_t *server) {
 
 void iproto_server_refcnt_inc(iproto_server_t *server) {
     server->refcnt++;
+}
+
+iproto_server_ev_t *iproto_server_get_ev(iproto_server_t *server) {
+    return server->ev;
 }
 
 const char *iproto_server_hostport(iproto_server_t *server) {

@@ -86,6 +86,7 @@ typedef struct {
     struct timeval soft_retry_delay_min;
     struct timeval soft_retry_delay_max;
     iproto_message_soft_retry_callback_t *soft_retry_callback;
+    void *data;
 } iproto_message_opts_t;
 
 typedef struct {

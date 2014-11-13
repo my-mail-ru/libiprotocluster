@@ -16,7 +16,7 @@ set(iprotocluster_cflags "-std=gnu99 -Wall -Werror -ggdb3")
 
 set(iprotocluster_sources iproto.c iproto_cluster.c iproto_shard.c
 iproto_server.c iproto_message.c iproto_stat.c iproto_util.c
-iproto_server_ev.c iproto_message_ev.c)
+iproto_evapi.c iproto_server_ev.c iproto_message_ev.c)
 if(WITH_GRAPHITE)
     set(iprotocluster_sources ${iprotocluster_sources} iproto_graphite.c)
 endif()
@@ -37,4 +37,5 @@ install(TARGETS iprotocluster
     ARCHIVE DESTINATION ${LIB_INSTALL_DIR}
 )
 install(FILES iprotocluster.h DESTINATION include)
+install(FILES iproto_evapi.h DESTINATION include)
 install(FILES iproto_util.h DESTINATION include)
