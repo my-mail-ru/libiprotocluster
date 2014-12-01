@@ -95,10 +95,8 @@ void iproto_bulk(iproto_message_t **messages, int nmessages, struct timeval *tim
         }
     }
 
-    if (messages_in_progress != 0) {
-        ev_run(loop, 0);
-        assert(messages_in_progress == 0);
-    }
+    while (messages_in_progress != 0)
+        ev_run(loop, EVRUN_ONCE);
 
     if (timeout) {
         ev_timer_stop(loop, timer);
@@ -135,6 +133,5 @@ static void iproto_bulk_message_cb(iproto_message_t *message) {
     iproto_message_options(message)->callback = NULL;
     iproto_message_ev_t *ev = iproto_message_get_ev(message);
     int *messages_in_progress = (int *)iproto_message_ev_data(ev);
-    if (--(*messages_in_progress) == 0)
-        ev_break(iproto_message_ev_loop(ev), EVBREAK_ONE);
+    --(*messages_in_progress);
 }

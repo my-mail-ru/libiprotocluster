@@ -10,6 +10,11 @@ enum {
 };
 
 enum {
+    EVRUN_NOWAIT = 1, /* do not block/wait */
+    EVRUN_ONCE   = 2  /* block *once* only */
+};
+
+enum {
     EVBREAK_CANCEL = 0, /* undo unloop */
     EVBREAK_ONE    = 1, /* unloop once */
     EVBREAK_ALL    = 2  /* unloop all loops */
