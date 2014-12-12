@@ -10,7 +10,7 @@ configure_file(
     "${PROJECT_BINARY_DIR}/iproto_config.h"
 )
 
-include_directories("${PROJECT_BINARY_DIR}")
+include_directories("${PROJECT_BINARY_DIR}" ${LIBEV_INCLUDE_DIR})
 
 set(iprotocluster_cflags "-std=gnu99 -Wall -Werror -ggdb3")
 

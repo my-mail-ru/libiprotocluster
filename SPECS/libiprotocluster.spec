@@ -26,7 +26,7 @@ iproto C client library with cluster support. Built from revision %{__revision}.
 %setup -n iproto/cluster
 
 %build
-%cmake %{?with_static:-DBUILD_SHARED_LIBS=OFF} %{?with_graphite:-DWITH_GRAPHITE=ON} %{?with_my:-DMY_MAIL_RU=ON} .
+%cmake %{?!el7:-DLIBEV_INCLUDE_DIR:PATH=/usr/include/libev} %{?with_static:-DBUILD_SHARED_LIBS=OFF} %{?with_graphite:-DWITH_GRAPHITE=ON} %{?with_my:-DMY_MAIL_RU=ON} .
 make %{?_smp_mflags}
 
 %install

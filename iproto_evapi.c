@@ -1,7 +1,6 @@
 #include "iproto_evapi.h"
 #include <assert.h>
 #include <stdlib.h>
-#include <libev/ev.h>
 
 static ev_io *xev_io_new(void (*cb)(struct ev_loop *, ev_io *, int)) {
     ev_io *io = malloc(sizeof(*io));

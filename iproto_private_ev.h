@@ -1,6 +1,7 @@
 #ifndef IPROTO_PRIVATE_EV_H_INCLUDED
 #define IPROTO_PRIVATE_EV_H_INCLUDED
 
+#define FAKE_EV
 #include "iproto_private.h"
 #include "iproto_evapi.h"
 
