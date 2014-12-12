@@ -2,6 +2,11 @@
 #include <assert.h>
 #include <stdlib.h>
 
+/* ev_run signature was changed in libev 4.15 */
+static void xev_run(struct ev_loop *loop, int flags) {
+    ev_run(loop, flags);
+}
+
 static ev_io *xev_io_new(void (*cb)(struct ev_loop *, ev_io *, int)) {
     ev_io *io = malloc(sizeof(*io));
     ev_init(io, cb);
@@ -57,7 +62,7 @@ iproto_evapi_t iproto_evapi = {
     .loop = NULL,
     .loop_fork = ev_loop_fork,
     .now_update = ev_now_update,
-    .run = ev_run,
+    .run = xev_run,
     .break_ = ev_break,
     .suspend = ev_suspend,
     .resume = ev_resume,
