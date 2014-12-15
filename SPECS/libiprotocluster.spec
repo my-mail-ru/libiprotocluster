@@ -2,8 +2,6 @@
 %bcond_without graphite
 %bcond_without my
 
-%define _prefix /usr/local
-
 Name:           libiprotocluster
 Version:        %{__version}
 Release:        %{__release}%{?dist}
@@ -32,10 +30,6 @@ make %{?_smp_mflags}
 %install
 rm -rf $RPM_BUILD_ROOT
 make install DESTDIR=$RPM_BUILD_ROOT
-%if ! %{with static}
-mkdir -p $RPM_BUILD_ROOT%{_sysconfdir}/ld.so.conf.d
-echo "%{_libdir}" > $RPM_BUILD_ROOT%{_sysconfdir}/ld.so.conf.d/%{name}.conf
-%endif
 
 %clean
 rm -rf $RPM_BUILD_ROOT
@@ -47,7 +41,6 @@ rm -rf $RPM_BUILD_ROOT
 %if ! %{with static}
 %files
 %{_libdir}/*.so
-%{_sysconfdir}/ld.so.conf.d/%{name}.conf
 %endif
 
 %package devel
