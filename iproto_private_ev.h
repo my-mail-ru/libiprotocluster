@@ -25,8 +25,8 @@ extern iproto_evapi_t iproto_evapi;
 # define EV_DEFAULT                iproto_evapi.loop
 # define ev_loop_fork(loop)        iproto_evapi.loop_fork ((loop))
 # define ev_now_update(loop)       iproto_evapi.now_update ((loop))
-# define ev_run(l,flags)           iproto_evapi.run ((l), (flags))
-# define ev_break(loop, how)       iproto_evapi.break_ ((loop), (how))
+# define iproto_run(loop, data)    iproto_evapi.iproto_run ((loop), (data))
+# define iproto_ready(loop, data)  iproto_evapi.iproto_ready ((loop), (data))
 # define ev_suspend(loop)          iproto_evapi.suspend ((loop))
 # define ev_resume(loop)           iproto_evapi.resume ((loop))
 # define ev_io_new(c)              iproto_evapi.io_new ((c))

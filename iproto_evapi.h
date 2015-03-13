@@ -10,7 +10,7 @@ typedef double ev_tstamp;
 #include <ev.h>
 #endif
 
-#define IPROTO_EVAPI_VERSION 1
+#define IPROTO_EVAPI_VERSION 2
 #define IPROTO_EVAPI_REVISION 0
 typedef struct {
     int version;
@@ -18,8 +18,8 @@ typedef struct {
     struct ev_loop *loop;
     void (*loop_fork)(struct ev_loop *);
     void (*now_update)(struct ev_loop *);
-    void (*run)(struct ev_loop *, int flags);
-    void (*break_)(struct ev_loop *, int how);
+    void (*iproto_run)(struct ev_loop *, void **data);
+    void (*iproto_ready)(struct ev_loop *, void *data);
     void (*suspend)(struct ev_loop *); 
     void (*resume) (struct ev_loop *); 
     ev_io *(*io_new)(void (*)(struct ev_loop *, ev_io *, int));
