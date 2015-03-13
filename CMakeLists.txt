@@ -25,7 +25,7 @@ if(MY_MAIL_RU)
 endif()
 
 add_library(iprotocluster ${iprotocluster_sources})
-target_link_libraries(iprotocluster iproto ev pthread m)
+target_link_libraries(iprotocluster iproto ev pthread m rt)
 set_target_properties(iprotocluster PROPERTIES COMPILE_FLAGS "${iprotocluster_cflags}")
 
 add_executable(iprotoclustertest test.c)

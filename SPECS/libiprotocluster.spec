@@ -12,8 +12,8 @@ License:        BSD
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-buildroot
 BuildRequires:  git
 BuildRequires:  gcc cmake
-BuildRequires:  libiproto-devel >= 2.0.4-2041
-BuildRequires:  libiproto-static >= 2.0.4-2041
+BuildRequires:  libiproto-devel >= 20150127.1756
+BuildRequires:  libiproto-static >= 20150127.1756
 BuildRequires:  libev-devel >= 4.03
 Requires:       libev >= 4.03
 
