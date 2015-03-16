@@ -59,7 +59,7 @@ static void *xev_timer_data(ev_timer *timer) {
     return timer->data;
 }
 
-iproto_evapi_t iproto_evapi = {
+static iproto_evapi_t iproto_evapi_default = {
     .version = IPROTO_EVAPI_VERSION,
     .revision = IPROTO_EVAPI_REVISION,
     .loop = NULL,
@@ -90,10 +90,15 @@ iproto_evapi_t iproto_evapi = {
 iproto_evapi_t iproto_evapi;
 
 void iproto_evapi_initialize(void) {
-    iproto_evapi.loop = EV_DEFAULT;
+    iproto_evapi_default.loop = EV_DEFAULT;
+    iproto_evapi = iproto_evapi_default;
 }
 
 void iproto_set_evapi(iproto_evapi_t *evapi) {
-    assert(evapi->version == IPROTO_EVAPI_VERSION && evapi->revision >= IPROTO_EVAPI_REVISION);
-    iproto_evapi = *evapi;
+    if (evapi) {
+        assert(evapi->version == IPROTO_EVAPI_VERSION && evapi->revision >= IPROTO_EVAPI_REVISION);
+        iproto_evapi = *evapi;
+    } else {
+        iproto_evapi = iproto_evapi_default;
+    }
 }
