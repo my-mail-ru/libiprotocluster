@@ -32,6 +32,6 @@ void iproto_evapi_initialize(void) {
         abort();
     }
     iproto_evapi_t *(*evapi_ev)(void);
-    *(void **)(&evapi_ev) = dlsym(handle, "iproto_evapi_ev");
+    evapi_ev = (iproto_evapi_t *(*)(void))dlsym(handle, "iproto_evapi_ev");
     set_evapi((*evapi_ev)());
 }
