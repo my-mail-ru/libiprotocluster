@@ -1,13 +1,11 @@
 #ifndef IPROTO_EVAPI_H_INCLUDED
 #define IPROTO_EVAPI_H_INCLUDED
 
-#ifdef FAKE_EV
+#ifndef ev_init
 struct ev_loop;
 typedef struct ev_io ev_io;
 typedef struct ev_timer ev_timer;
 typedef double ev_tstamp;
-#else
-#include <ev.h>
 #endif
 
 #define IPROTO_EVAPI_VERSION 2
