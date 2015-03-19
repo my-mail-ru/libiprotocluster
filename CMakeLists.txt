@@ -30,12 +30,17 @@ set_target_properties(iprotocluster PROPERTIES COMPILE_FLAGS "${iprotocluster_cf
 
 add_library(iprotocluster_ev iproto_evapi_ev.c)
 target_link_libraries(iprotocluster_ev ev)
+set_target_properties(iprotocluster_ev PROPERTIES COMPILE_FLAGS "${iprotocluster_cflags}")
 
 add_executable(iprotoclustertest test.c)
 target_link_libraries(iprotoclustertest iprotocluster)
 set_target_properties(iprotoclustertest PROPERTIES COMPILE_FLAGS "${iprotocluster_cflags}")
 
 install(TARGETS iprotocluster
+    LIBRARY DESTINATION ${LIB_INSTALL_DIR}
+    ARCHIVE DESTINATION ${LIB_INSTALL_DIR}
+)
+install(TARGETS iprotocluster_ev
     LIBRARY DESTINATION ${LIB_INSTALL_DIR}
     ARCHIVE DESTINATION ${LIB_INSTALL_DIR}
 )
