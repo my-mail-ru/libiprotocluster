@@ -13,6 +13,7 @@ KHASH_INIT(server_ev_set, iproto_server_ev_t *, char, 0, kh_req_hash_func, kh_re
 typedef struct {
     void *data;
     int messages_in_progress;
+    bool in_loop;
 } iproto_bulk_data_t;
 
 typedef struct {
@@ -84,7 +85,7 @@ void iproto_bulk(iproto_message_t **messages, int nmessages, struct timeval *tim
         ev_timer_start(loop, timer);
     }
 
-    iproto_bulk_data_t data = { .data = NULL, .messages_in_progress = 0 };
+    iproto_bulk_data_t data = { .data = NULL, .messages_in_progress = 0, .in_loop = false };
     for (int i = 0; i < nmessages; i++) {
         iproto_message_opts_t *opts = iproto_message_options(messages[i]);
         if (opts->callback == NULL) {
@@ -100,8 +101,10 @@ void iproto_bulk(iproto_message_t **messages, int nmessages, struct timeval *tim
         }
     }
 
-    if (data.messages_in_progress != 0)
+    if (data.messages_in_progress != 0) {
+        data.in_loop = true;
         iproto_run(loop, &data.data);
+    }
 
     if (timeout) {
         ev_timer_stop(loop, timer);
@@ -138,6 +141,6 @@ static void iproto_bulk_message_cb(iproto_message_t *message) {
     iproto_message_options(message)->callback = NULL;
     iproto_message_ev_t *ev = iproto_message_get_ev(message);
     iproto_bulk_data_t *data = (iproto_bulk_data_t *)iproto_message_ev_data(ev);
-    if (--(data->messages_in_progress) == 0)
+    if (--(data->messages_in_progress) == 0 && data->in_loop)
         iproto_ready(iproto_message_ev_loop(ev), data->data);
 }
