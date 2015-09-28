@@ -240,16 +240,18 @@ void iproto_server_send(iproto_server_t *server, iproto_message_t *message) {
     struct iproto_request_t *request = li_req_init(server->connection, code, data, size);
     assert(request); // TODO Handle NULL result from this function
     iproto_server_log_data(server, LOG_DEBUG | LOG_DATA, data, size, "send request %p (code = %d)", request, code);
-    if (kh_size(server->in_progress) == 0) {
-        iproto_cluster_t *cluster = iproto_message_get_cluster(message);
-        iproto_cluster_opts_t *copts = iproto_cluster_options(cluster);
-        iproto_server_ev_start(server->ev, iproto_message_ev_loop(mev), &copts->connect_timeout);
-    }
+    bool was_empty = kh_size(server->in_progress) == 0;
     int ret;
     khiter_t k = kh_put(request_message, server->in_progress, request, &ret);
     assert(ret); // TODO Handle if (!ret) ...
     kh_value(server->in_progress, k) = message;
     iproto_message_insert_request(message, server, request);
+    if (was_empty) {
+        iproto_cluster_t *cluster = iproto_message_get_cluster(message);
+        iproto_cluster_opts_t *copts = iproto_cluster_options(cluster);
+        iproto_server_ev_start(server->ev, iproto_message_ev_loop(mev), &copts->connect_timeout);
+        if (server->status == NotConnected) return;
+    }
     if (server->status == NotConnected) {
         iproto_server_connect(server);
     } else if (server->status == Connected) {

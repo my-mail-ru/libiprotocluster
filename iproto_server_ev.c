@@ -40,13 +40,25 @@ void iproto_server_ev_free(iproto_server_ev_t *ev) {
     free(ev);
 }
 
+static void iproto_server_ev_post_handle(iproto_server_ev_t *ev, bool finish) {
+    iproto_message_t *message;
+    while ((message = iproto_server_recv(ev->server))) {
+        iproto_message_ev_dispatch(iproto_message_get_ev(message), finish);
+    }
+}
+
 void iproto_server_ev_start(iproto_server_ev_t *ev, struct ev_loop *loop, struct timeval *connect_timeout) {
     assert(ev->loop == NULL);
     gettimeofday(&ev->start_time, NULL);
     ev->loop = loop;
     ev_timer_set(ev->connect_timeout, timeval2ev(*connect_timeout), 0);
-    ev_io_set(ev->io, iproto_server_get_fd(ev->server), EV_WRITE);
-    ev_io_start(ev->loop, ev->io);
+    int fd = iproto_server_get_fd(ev->server);
+    if (fd >= 0) {
+        ev_io_set(ev->io, fd, EV_WRITE);
+        ev_io_start(ev->loop, ev->io);
+    } else {
+        iproto_server_ev_post_handle(ev, false);
+    }
 }
 
 void iproto_server_ev_done(iproto_server_ev_t *ev, iproto_error_t error) {
@@ -77,13 +89,6 @@ void iproto_server_ev_update_io(iproto_server_ev_t *ev, int set_events, int unse
         ev_io_stop(ev->loop, ev->io);
         ev_io_set(ev->io, fd, new_events);
         ev_io_start(ev->loop, ev->io);
-    }
-}
-
-static void iproto_server_ev_post_handle(iproto_server_ev_t *ev, bool finish) {
-    iproto_message_t *message;
-    while ((message = iproto_server_recv(ev->server))) {
-        iproto_message_ev_dispatch(iproto_message_get_ev(message), finish);
     }
 }
 
