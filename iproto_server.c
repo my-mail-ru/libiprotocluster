@@ -165,11 +165,6 @@ static iproto_error_t iproto_server_connect(iproto_server_t *server) {
             memset(&server->last_error_time, 0, sizeof(struct timeval));
             iproto_server_log(server, LOG_DEBUG | LOG_CONNECT, "connected");
             iproto_server_ev_connected(server->ev);
-            khiter_t k;
-            foreach (server->in_progress, k) {
-                iproto_message_t *message = kh_value(server->in_progress, k);
-                iproto_message_ev_start_timer(iproto_message_get_ev(message));
-            }
             break;
         case ERR_CODE_CONNECT_IN_PROGRESS:
             server->status = ConnectInProgress;
@@ -233,7 +228,6 @@ int iproto_server_get_fd(iproto_server_t *server) {
 void iproto_server_send(iproto_server_t *server, iproto_message_t *message) {
     if (kh_size(server->in_progress) == 0)
         iproto_server_check_connection(server);
-    iproto_message_ev_t *mev = iproto_message_get_ev(message);
     void *data;
     size_t size;
     uint32_t code = iproto_message_get_request(message, &data, &size);
@@ -249,13 +243,12 @@ void iproto_server_send(iproto_server_t *server, iproto_message_t *message) {
     if (was_empty) {
         iproto_cluster_t *cluster = iproto_message_get_cluster(message);
         iproto_cluster_opts_t *copts = iproto_cluster_options(cluster);
-        iproto_server_ev_start(server->ev, iproto_message_ev_loop(mev), &copts->connect_timeout);
+        iproto_server_ev_start(server->ev, &copts->connect_timeout);
         if (server->status == NotConnected) return;
     }
     if (server->status == NotConnected) {
         iproto_server_connect(server);
     } else if (server->status == Connected) {
-        iproto_message_ev_start_timer(mev);
         iproto_server_ev_update_io(server->ev, EV_WRITE, 0);
     }
 }
@@ -349,6 +342,11 @@ void iproto_server_handle_io(iproto_server_t *server, short revents) {
             case ERR_CODE_NOTHING_TO_DO:
                 iproto_server_log(server, LOG_DEBUG | LOG_IO, "all data written");
                 iproto_server_ev_update_io(server->ev, EV_READ, EV_WRITE);
+                khiter_t k;
+                foreach (server->in_progress, k) {
+                    iproto_message_t *message = kh_value(server->in_progress, k);
+                    iproto_message_ev_start(iproto_message_get_ev(message));
+                }
                 break;
             default:
                 iproto_server_log(server, LOG_ERROR | LOG_IO, "unknown li_write() error code: %u", status);

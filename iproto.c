@@ -51,11 +51,9 @@ void iproto_free_globals(void) {
 static void iproto_call_timeout_cb(struct ev_loop *loop, ev_timer *w, int revents);
 static void iproto_bulk_message_cb(iproto_message_t *message);
 
-static bool iproto_send(struct ev_loop *loop, iproto_message_t *message) {
+static bool iproto_send(iproto_message_t *message) {
     if (iproto_message_get_cluster(message)) {
-        iproto_message_ev_t *ev = iproto_message_get_ev(message);
-        iproto_message_ev_start(ev, loop);
-        iproto_message_ev_dispatch(ev, false);
+        iproto_message_ev_dispatch(iproto_message_get_ev(message), false);
         return true;
     } else {
         iproto_message_set_response(message, NULL, ERR_CODE_CLUSTER_NOT_SET, NULL, 0);
@@ -80,6 +78,7 @@ void iproto_bulk(iproto_message_t **messages, int nmessages, struct timeval *tim
         to_data.nmessages = 0;
         to_data.error = &error;
         timer = ev_timer_new(iproto_call_timeout_cb);
+        ev_timer_set_priority(timer, IPROTO_TIMEOUTPRI);
         ev_timer_set(timer, timeval2ev(*timeout), 0);
         ev_timer_set_data(timer, &to_data);
         ev_timer_start(loop, timer);
@@ -91,13 +90,13 @@ void iproto_bulk(iproto_message_t **messages, int nmessages, struct timeval *tim
         if (opts->callback == NULL) {
             opts->callback = iproto_bulk_message_cb;
             iproto_message_ev_set_data(iproto_message_get_ev(messages[i]), &data);
-            if (iproto_send(loop, messages[i])) {
+            if (iproto_send(messages[i])) {
                 data.messages_in_progress++;
                 if (timeout)
                     to_data.messages[to_data.nmessages++] = messages[i];
             }
         } else {
-            iproto_send(loop, messages[i]);
+            iproto_send(messages[i]);
         }
     }
 
@@ -142,5 +141,5 @@ static void iproto_bulk_message_cb(iproto_message_t *message) {
     iproto_message_ev_t *ev = iproto_message_get_ev(message);
     iproto_bulk_data_t *data = (iproto_bulk_data_t *)iproto_message_ev_data(ev);
     if (--(data->messages_in_progress) == 0 && data->in_loop)
-        iproto_ready(iproto_message_ev_loop(ev), data->data);
+        iproto_ready(EV_DEFAULT, data->data);
 }

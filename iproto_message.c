@@ -205,5 +205,5 @@ void iproto_message_set_response(iproto_message_t *message, iproto_server_t *ser
         if (li_req_state(entry->request) != ERR_CODE_REQUEST_IN_PROGRESS)
             message->is_unsafe = true;
     }
-    iproto_message_ev_stop_timer(message->ev);
+    iproto_message_ev_stop(message->ev);
 }

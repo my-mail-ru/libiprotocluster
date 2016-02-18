@@ -59,6 +59,10 @@ static void *xev_timer_data(ev_timer *timer) {
     return timer->data;
 }
 
+static void xev_timer_set_priority(ev_timer *timer, int priority) {
+    ev_set_priority(timer, priority);
+}
+
 static iproto_evapi_t evapi_ev = {
     .version = IPROTO_EVAPI_VERSION,
     .revision = IPROTO_EVAPI_REVISION,
@@ -84,7 +88,8 @@ static iproto_evapi_t evapi_ev = {
     .timer_data = xev_timer_data,
     .timer_start = ev_timer_start,
     .timer_stop = ev_timer_stop,
-    .timer_again = ev_timer_again
+    .timer_again = ev_timer_again,
+    .timer_set_priority = xev_timer_set_priority
 };
 
 iproto_evapi_t *iproto_evapi_ev(void) {

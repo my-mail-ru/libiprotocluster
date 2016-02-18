@@ -21,6 +21,7 @@ iproto_server_ev_t *iproto_server_ev_init(iproto_server_t *server) {
     iproto_server_ev_t *ev = malloc(sizeof(*ev));
     ev->io = ev_io_new(iproto_server_ev_io_cb);
     ev->connect_timeout = ev_timer_new(iproto_server_ev_connect_timeout_cb);
+    ev_timer_set_priority(ev->connect_timeout, IPROTO_TIMEOUTPRI);
     ev_io_set_data(ev->io, ev);
     ev_timer_set_data(ev->connect_timeout, ev);
     ev->server = server;
@@ -47,10 +48,10 @@ static void iproto_server_ev_post_handle(iproto_server_ev_t *ev, bool finish) {
     }
 }
 
-void iproto_server_ev_start(iproto_server_ev_t *ev, struct ev_loop *loop, struct timeval *connect_timeout) {
+void iproto_server_ev_start(iproto_server_ev_t *ev, struct timeval *connect_timeout) {
     assert(ev->loop == NULL);
     gettimeofday(&ev->start_time, NULL);
-    ev->loop = loop;
+    ev->loop = EV_DEFAULT;
     ev_timer_set(ev->connect_timeout, timeval2ev(*connect_timeout), 0);
     int fd = iproto_server_get_fd(ev->server);
     if (fd >= 0) {

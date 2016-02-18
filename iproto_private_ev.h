@@ -4,6 +4,8 @@
 #include "iproto_private.h"
 #include "iproto_evapi.h"
 
+#define IPROTO_TIMEOUTPRI -1
+
 enum {
     EV_READ  = 0x01, /* ev_io detected read will not block */
     EV_WRITE = 0x02  /* ev_io detected write will not block */
@@ -44,6 +46,7 @@ extern iproto_evapi_t iproto_evapi;
 # define ev_timer_start(l,w)       iproto_evapi.timer_start ((l), (w))
 # define ev_timer_stop(l,w)        iproto_evapi.timer_stop  ((l), (w))
 # define ev_timer_again(l,w)       iproto_evapi.timer_again  ((l), (w))
+# define ev_timer_set_priority(w,p) iproto_evapi.timer_set_priority ((w), (p))
 void iproto_evapi_initialize(void);
 
 typedef struct iproto_message_ev iproto_message_ev_t;
@@ -56,7 +59,7 @@ iproto_message_ev_t *iproto_message_get_ev(iproto_message_t *message);
 
 iproto_server_ev_t *iproto_server_ev_init(iproto_server_t *server);
 void iproto_server_ev_free(iproto_server_ev_t *ev);
-void iproto_server_ev_start(iproto_server_ev_t *ev, struct ev_loop *loop, struct timeval *connect_timeout);
+void iproto_server_ev_start(iproto_server_ev_t *ev, struct timeval *connect_timeout);
 void iproto_server_ev_connecting(iproto_server_ev_t *ev);
 void iproto_server_ev_connected(iproto_server_ev_t *ev);
 void iproto_server_ev_update_io(iproto_server_ev_t *ev, int set_events, int unset_events);
@@ -65,11 +68,9 @@ void iproto_server_ev_cancel(iproto_server_ev_t *ev, iproto_error_t error);
 
 iproto_message_ev_t *iproto_message_ev_init(iproto_message_t *message);
 void iproto_message_ev_free(iproto_message_ev_t *ev);
-void iproto_message_ev_start(iproto_message_ev_t *ev, struct ev_loop *loop);
-struct ev_loop *iproto_message_ev_loop(iproto_message_ev_t *ev);
+void iproto_message_ev_start(iproto_message_ev_t *ev);
+void iproto_message_ev_stop(iproto_message_ev_t *ev);
 void iproto_message_ev_dispatch(iproto_message_ev_t *ev, bool finish);
-void iproto_message_ev_start_timer(iproto_message_ev_t *ev);
-void iproto_message_ev_stop_timer(iproto_message_ev_t *ev);
 void iproto_message_ev_set_data(iproto_message_ev_t *ev, void *data);
 void *iproto_message_ev_data(iproto_message_ev_t *ev);
 

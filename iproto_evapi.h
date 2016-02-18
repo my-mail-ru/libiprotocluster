@@ -9,7 +9,7 @@ typedef double ev_tstamp;
 #endif
 
 #define IPROTO_EVAPI_VERSION 2
-#define IPROTO_EVAPI_REVISION 0
+#define IPROTO_EVAPI_REVISION 1
 typedef struct {
     int version;
     int revision;
@@ -36,6 +36,7 @@ typedef struct {
     void (*timer_start)(struct ev_loop *, ev_timer *);
     void (*timer_stop) (struct ev_loop *, ev_timer *);
     void (*timer_again)(struct ev_loop *, ev_timer *);
+    void (*timer_set_priority)(ev_timer *, int);
 } iproto_evapi_t;
 
 void iproto_set_evapi(iproto_evapi_t *evapi);
