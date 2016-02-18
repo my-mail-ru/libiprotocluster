@@ -10,7 +10,7 @@ Summary:        iproto C client library with cluster support
 Group:          Development/Libraries
 License:        BSD
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-buildroot
-BuildRequires:  gcc cmake libstdc++-devel libstdc++-static
+BuildRequires:  gcc cmake
 BuildRequires:  libiproto-devel >= 20150127.1756
 BuildRequires:  libiproto-static >= 20150127.1756
 BuildRequires:  libev-devel >= 4.03
