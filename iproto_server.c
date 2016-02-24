@@ -85,6 +85,7 @@ iproto_server_t *iproto_server_init(char *host, int port) {
 }
 
 static void iproto_server_close(iproto_server_t *server) {
+    iproto_server_ev_close(server->ev);
     li_close(server->connection);
     if (server->status != NotConnected) {
         if (server->status != ConnectInProgress)
@@ -115,14 +116,6 @@ void iproto_server_free(iproto_server_t *server) {
         if (--arena_pool_refcnt == 0)
             map_free(arena_pool);
     }
-}
-
-void iproto_server_refcnt_inc(iproto_server_t *server) {
-    server->refcnt++;
-}
-
-iproto_server_ev_t *iproto_server_get_ev(iproto_server_t *server) {
-    return server->ev;
 }
 
 const char *iproto_server_hostport(iproto_server_t *server) {
@@ -169,12 +162,12 @@ static iproto_error_t iproto_server_connect(iproto_server_t *server) {
         case ERR_CODE_CONNECT_IN_PROGRESS:
             server->status = ConnectInProgress;
             iproto_server_log(server, LOG_DEBUG | LOG_CONNECT, "connecting");
-            iproto_server_ev_connecting(server->ev);
+            iproto_server_ev_connect(server->ev, li_get_fd(server->connection));
             break;
         case ERR_CODE_HOST_UNKNOWN:
         case ERR_CODE_CONNECT_ERR:
             iproto_server_handle_error(server, status);
-            server->status = NotConnected;
+            iproto_server_recv_and_dispatch(server, false);
             break;
         default:
             iproto_server_log(server, LOG_ERROR | LOG_IO, "unknown li_connect() error code: %u", status);
@@ -220,11 +213,6 @@ static void iproto_server_check_connection(iproto_server_t *server) {
     }
 }
 
-int iproto_server_get_fd(iproto_server_t *server) {
-    if (server->status == NotConnected) iproto_server_connect(server);
-    return li_get_fd(server->connection);
-}
-
 void iproto_server_send(iproto_server_t *server, iproto_message_t *message) {
     if (kh_size(server->in_progress) == 0)
         iproto_server_check_connection(server);
@@ -234,19 +222,15 @@ void iproto_server_send(iproto_server_t *server, iproto_message_t *message) {
     struct iproto_request_t *request = li_req_init(server->connection, code, data, size);
     assert(request); // TODO Handle NULL result from this function
     iproto_server_log_data(server, LOG_DEBUG | LOG_DATA, data, size, "send request %p (code = %d)", request, code);
-    bool was_empty = kh_size(server->in_progress) == 0;
     int ret;
     khiter_t k = kh_put(request_message, server->in_progress, request, &ret);
     assert(ret); // TODO Handle if (!ret) ...
     kh_value(server->in_progress, k) = message;
     iproto_message_insert_request(message, server, request);
-    if (was_empty) {
+    if (server->status == NotConnected) {
         iproto_cluster_t *cluster = iproto_message_get_cluster(message);
         iproto_cluster_opts_t *copts = iproto_cluster_options(cluster);
-        iproto_server_ev_start(server->ev, &copts->connect_timeout);
-        if (server->status == NotConnected) return;
-    }
-    if (server->status == NotConnected) {
+        iproto_server_ev_set_connect_timeout(server->ev, &copts->connect_timeout);
         iproto_server_connect(server);
     } else if (server->status == Connected) {
         iproto_server_ev_update_io(server->ev, EV_WRITE, 0);
@@ -280,7 +264,7 @@ static iproto_message_t *iproto_server_recv_request(iproto_server_t *server) {
     return message;
 }
 
-iproto_message_t *iproto_server_recv(iproto_server_t *server) {
+static iproto_message_t *iproto_server_recv(iproto_server_t *server) {
     struct message_entry *entry = TAILQ_FIRST(&server->failed);
     if (entry) {
         TAILQ_REMOVE(&server->failed, entry, link);
@@ -289,6 +273,13 @@ iproto_message_t *iproto_server_recv(iproto_server_t *server) {
         return message;
     }
     return iproto_server_recv_request(server);
+}
+
+void iproto_server_recv_and_dispatch(iproto_server_t *server, bool finish) {
+    iproto_message_t *message;
+    while ((message = iproto_server_recv(server))) {
+        iproto_message_dispatch(message, finish);
+    }
 }
 
 static void iproto_server_mark_error(iproto_server_t *server) {
@@ -312,7 +303,6 @@ void iproto_server_handle_io(iproto_server_t *server, short revents) {
                 return;
             case ERR_CODE_OK:
                 iproto_server_log(server, LOG_DEBUG | LOG_IO, "not all data read");
-                iproto_server_ev_update_io(server->ev, EV_READ, 0);
                 break;
             case ERR_CODE_NOTHING_TO_DO:
                 iproto_server_log(server, LOG_DEBUG | LOG_IO, "all data read");
@@ -337,7 +327,7 @@ void iproto_server_handle_io(iproto_server_t *server, short revents) {
                 return;
             case ERR_CODE_OK:
                 iproto_server_log(server, LOG_DEBUG | LOG_IO, "not all data written");
-                iproto_server_ev_update_io(server->ev, EV_WRITE | EV_READ, 0);
+                iproto_server_ev_update_io(server->ev, EV_READ, 0);
                 break;
             case ERR_CODE_NOTHING_TO_DO:
                 iproto_server_log(server, LOG_DEBUG | LOG_IO, "all data written");
@@ -356,7 +346,7 @@ void iproto_server_handle_io(iproto_server_t *server, short revents) {
 }
 
 void iproto_server_handle_error(iproto_server_t *server, iproto_error_t error) {
-    iproto_server_log(server, LOG_ERROR, "%s [%d]", iproto_error_string(error), error);
+    iproto_server_log(server, LOG_ERROR, "%s [0x%x]", iproto_error_string(error), error);
     iproto_message_t *message;
     while ((message = iproto_server_recv_request(server))) {
         struct message_entry *entry = malloc(sizeof(*entry));
@@ -375,19 +365,15 @@ void iproto_server_handle_error(iproto_server_t *server, iproto_error_t error) {
     kh_clear(request_message, server->in_progress);
     iproto_server_close(server);
     iproto_server_mark_error(server);
-    iproto_server_ev_done(server->ev, error);
 }
 
 void iproto_server_remove_message(iproto_server_t *server, iproto_message_t *message, struct iproto_request_t *request, iproto_error_t error) {
     khiter_t k = kh_get(request_message, server->in_progress, request);
     if (k != kh_end(server->in_progress)) {
         kh_del(request_message, server->in_progress, k);
-        if (kh_size(server->in_progress) == 0) {
-            if (error == ERR_CODE_TIMEOUT) {
-                iproto_server_close(server);
-                iproto_server_mark_error(server);
-            }
-            iproto_server_ev_done(server->ev, error);
+        if (kh_size(server->in_progress) == 0 && error == ERR_CODE_TIMEOUT) {
+            iproto_server_close(server);
+            iproto_server_mark_error(server);
         }
     }
 }

@@ -54,23 +54,23 @@ typedef struct iproto_server_ev iproto_server_ev_t;
 
 #define timeval2ev(tv) ((tv).tv_sec + (tv).tv_usec / 1000000.)
 
-iproto_server_ev_t *iproto_server_get_ev(iproto_server_t *server);
 iproto_message_ev_t *iproto_message_get_ev(iproto_message_t *message);
+void iproto_message_early_retry(iproto_message_t *message);
+void iproto_message_handle_timeout(iproto_message_t *message);
 
 iproto_server_ev_t *iproto_server_ev_init(iproto_server_t *server);
 void iproto_server_ev_free(iproto_server_ev_t *ev);
-void iproto_server_ev_start(iproto_server_ev_t *ev, struct timeval *connect_timeout);
-void iproto_server_ev_connecting(iproto_server_ev_t *ev);
+void iproto_server_ev_set_connect_timeout(iproto_server_ev_t *ev, struct timeval *connect_timeout);
+void iproto_server_ev_connect(iproto_server_ev_t *ev, int fd);
 void iproto_server_ev_connected(iproto_server_ev_t *ev);
+void iproto_server_ev_close(iproto_server_ev_t *ev);
 void iproto_server_ev_update_io(iproto_server_ev_t *ev, int set_events, int unset_events);
-void iproto_server_ev_done(iproto_server_ev_t *ev, iproto_error_t error);
-void iproto_server_ev_cancel(iproto_server_ev_t *ev, iproto_error_t error);
 
 iproto_message_ev_t *iproto_message_ev_init(iproto_message_t *message);
 void iproto_message_ev_free(iproto_message_ev_t *ev);
 void iproto_message_ev_start(iproto_message_ev_t *ev);
 void iproto_message_ev_stop(iproto_message_ev_t *ev);
-void iproto_message_ev_dispatch(iproto_message_ev_t *ev, bool finish);
+void iproto_message_ev_soft_retry(iproto_message_ev_t *ev, struct timeval *delay);
 void iproto_message_ev_set_data(iproto_message_ev_t *ev, void *data);
 void *iproto_message_ev_data(iproto_message_ev_t *ev);
 

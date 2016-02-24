@@ -16,6 +16,7 @@ struct server_request {
 
 struct iproto_message {
     iproto_cluster_t *cluster;
+    iproto_server_t *last_server;
     struct {
         uint32_t code;
         void *data;
@@ -34,6 +35,9 @@ struct iproto_message {
     TAILQ_HEAD(message_requests, server_request) requests;
     iproto_message_ev_t *ev;
 };
+
+#define iproto_message_log(message, mask, format, ...) \
+    iproto_log(mask, "message %p: " format, message, ##__VA_ARGS__)
 
 iproto_message_t *iproto_message_init(int code, void *data, size_t size) {
     iproto_message_t *message = malloc(sizeof(iproto_message_t));
@@ -87,10 +91,9 @@ void *iproto_message_response(iproto_message_t *message, size_t *size, bool *rep
     return message->response.data;
 }
 
-bool iproto_message_soft_retry(iproto_message_t *message, struct timeval *delay) {
-    iproto_message_opts_t *opts = iproto_message_options(message);
-    if (message->tries < message->opts.max_tries && opts->soft_retry_callback && opts->soft_retry_callback(message)) {
-        iproto_log(LOG_DEBUG | LOG_RETRY, "soft retry");
+static bool iproto_message_soft_retry(iproto_message_t *message, struct timeval *delay) {
+    if (message->tries < message->opts.max_tries && message->opts.soft_retry_callback && message->opts.soft_retry_callback(message)) {
+        iproto_message_log(message, LOG_DEBUG | LOG_RETRY, "soft retry");
         iproto_message_set_response(message, NULL, ERR_CODE_REQUEST_IN_PROGRESS, NULL, 0);
         message->is_unsafe = false;
         timersub(&message->opts.soft_retry_delay_max, &message->opts.soft_retry_delay_min, delay);
@@ -105,7 +108,7 @@ bool iproto_message_soft_retry(iproto_message_t *message, struct timeval *delay)
     }
 }
 
-bool iproto_message_can_try(iproto_message_t *message) {
+static bool iproto_message_can_try(iproto_message_t *message) {
     if (TAILQ_FIRST(&message->requests) == NULL) {
         return (!((message->opts.retry & RETRY_SAFE) && message->is_unsafe))
             && ++message->tries <= message->opts.max_tries;
@@ -114,7 +117,7 @@ bool iproto_message_can_try(iproto_message_t *message) {
     }
 }
 
-bool iproto_message_retry_same(iproto_message_t *message) {
+static bool iproto_message_retry_same(iproto_message_t *message) {
     return (message->opts.retry & RETRY_SAME) && message->is_unsafe;
 }
 
@@ -143,7 +146,7 @@ void iproto_message_remove_request(iproto_message_t *message, iproto_server_t *s
     free(remove);
 }
 
-int iproto_message_clear_requests(iproto_message_t *message, iproto_error_t error) {
+static int iproto_message_clear_requests(iproto_message_t *message, iproto_error_t error) {
     int count = 0;
     struct server_request *entry;
     while ((entry = TAILQ_FIRST(&message->requests))) {
@@ -154,10 +157,6 @@ int iproto_message_clear_requests(iproto_message_t *message, iproto_error_t erro
         count++;
     }
     return count;
-}
-
-bool iproto_message_in_progress(iproto_message_t *message) {
-    return TAILQ_FIRST(&message->requests) != NULL;
 }
 
 void iproto_message_while_request_server(iproto_message_t *message, void (*callback)(iproto_server_t *server)) {
@@ -206,4 +205,66 @@ void iproto_message_set_response(iproto_message_t *message, iproto_server_t *ser
             message->is_unsafe = true;
     }
     iproto_message_ev_stop(message->ev);
+}
+
+void iproto_message_early_retry(iproto_message_t *message) {
+    iproto_message_log(message, LOG_WARNING | LOG_EV, "server %s: early timeout (%d.%06d)",
+        iproto_server_hostport(message->last_server),
+        message->opts.early_timeout.tv_sec, message->opts.early_timeout.tv_usec);
+    iproto_server_t *srvs[3];
+    srvs[0] = message->last_server;
+    for (int t = 1; t < 3; t++) {
+        srvs[t] = iproto_cluster_get_server(message->cluster, message, srvs, t);
+        if (srvs[t])
+            iproto_server_send(srvs[t], message);
+    }
+    iproto_message_log(message, LOG_WARNING | LOG_RETRY, "server %s: early retry: %s and %s",
+        iproto_server_hostport(srvs[0]),
+        srvs[1] ? iproto_server_hostport(srvs[1]) : "nothing",
+        srvs[2] ? iproto_server_hostport(srvs[2]) : "nothing");
+}
+
+void iproto_message_handle_timeout(iproto_message_t *message) {
+    iproto_message_log(message, LOG_WARNING | LOG_EV, "server %s: timeout (%d.%06d)",
+        iproto_server_hostport(message->last_server),
+        message->opts.timeout.tv_sec, message->opts.timeout.tv_usec);
+    assert(TAILQ_FIRST(&message->requests) != NULL);
+    iproto_message_set_response(message, message->last_server, ERR_CODE_TIMEOUT, NULL, 0);
+    iproto_message_clear_requests(message, ERR_CODE_TIMEOUT);
+    iproto_message_dispatch(message, false);
+}
+
+static void iproto_message_done(iproto_message_t *message) {
+    assert(message->response.error != ERR_CODE_REQUEST_IN_PROGRESS);
+    iproto_message_ev_stop(message->ev);
+    if (message->opts.callback)
+        message->opts.callback(message);
+}
+
+static void iproto_message_send(iproto_message_t *message) {
+    iproto_server_t *server = message->last_server && iproto_message_retry_same(message) ? message->last_server
+        : iproto_cluster_get_server(message->cluster, message, NULL, 0);
+    if (server == NULL) {
+        iproto_message_done(message);
+    } else {
+        iproto_server_send(server, message);
+        message->last_server = server;
+    }
+}
+
+void iproto_message_dispatch(iproto_message_t *message, bool finish) {
+    if (message->response.error == ERR_CODE_OK) {
+        struct timeval soft_retry_delay;
+        if (iproto_message_soft_retry(message, &soft_retry_delay)) {
+            iproto_message_ev_soft_retry(message->ev, &soft_retry_delay);
+        } else {
+            iproto_message_clear_requests(message, ERR_CODE_LOSE_EARLY_RETRY);
+            iproto_message_done(message);
+        }
+    } else if (finish || !iproto_message_can_try(message)) {
+        if (TAILQ_FIRST(&message->requests) == NULL)
+            iproto_message_done(message);
+    } else {
+        iproto_message_send(message);
+    }
 }

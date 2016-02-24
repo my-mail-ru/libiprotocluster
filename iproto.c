@@ -1,7 +1,6 @@
 #include "iproto_private.h"
 #include "iproto_private_ev.h"
 
-#include <assert.h>
 #include <stdlib.h>
 #include <sys/time.h>
 #include <math.h>
@@ -53,7 +52,7 @@ static void iproto_bulk_message_cb(iproto_message_t *message);
 
 static bool iproto_send(iproto_message_t *message) {
     if (iproto_message_get_cluster(message)) {
-        iproto_message_ev_dispatch(iproto_message_get_ev(message), false);
+        iproto_message_dispatch(message, false);
         return true;
     } else {
         iproto_message_set_response(message, NULL, ERR_CODE_CLUSTER_NOT_SET, NULL, 0);
@@ -124,7 +123,8 @@ void iproto_do(iproto_message_t *message, struct timeval *timeout) {
 }
 
 static void iproto_cancel_on_timeout(iproto_server_t *server) {
-    iproto_server_ev_cancel(iproto_server_get_ev(server), ERR_CODE_TIMEOUT);
+    iproto_server_handle_error(server, ERR_CODE_TIMEOUT);
+    iproto_server_recv_and_dispatch(server, true);
 }
 
 static void iproto_call_timeout_cb(struct ev_loop *loop, ev_timer *w, int revents) {
