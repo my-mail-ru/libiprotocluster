@@ -33,7 +33,7 @@ void iproto_stat_set_callback(iproto_stat_callback_t *callback) {
 
 iproto_stat_t *iproto_stat_init(const char *type, const char *server) {
     if (!stats)
-        stats = kh_init(iproto_stats, NULL, realloc);
+        stats = kh_init(iproto_stats, NULL, kh_realloc);
     iproto_stat_t *stat = malloc(sizeof(*stat));
     stat->type = strdup(type);
     if (server) {
@@ -48,7 +48,7 @@ iproto_stat_t *iproto_stat_init(const char *type, const char *server) {
         stat->server = NULL;
         stat->key = strdup(type);
     }
-    stat->data = kh_init(iproto_stat_data, NULL, realloc);
+    stat->data = kh_init(iproto_stat_data, NULL, kh_realloc);
     int ret;
     khiter_t k = kh_put(iproto_stats, stats, stat->key, &ret);
     assert(ret);

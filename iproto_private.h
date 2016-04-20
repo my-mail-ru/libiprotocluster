@@ -13,6 +13,8 @@
 #define kh_req_hash_equal(a, b) kh_int_hash_equal(a, b)
 #endif
 
+void *kh_realloc(void *ptr, size_t size);
+
 typedef struct iproto_stat iproto_stat_t;
 
 void iproto_init_globals(void);

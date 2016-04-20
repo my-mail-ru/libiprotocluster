@@ -52,7 +52,7 @@ static void iproto_server_mark_error(iproto_server_t *server);
 
 iproto_server_t *iproto_server_init(char *host, int port) {
     if (!server_pool)
-        server_pool = kh_init(hp_servers, NULL, realloc);
+        server_pool = kh_init(hp_servers, NULL, kh_realloc);
     char hostport[256];
     snprintf(hostport, 256, "%s:%d", host, port);
     khiter_t k = kh_get(hp_servers, server_pool, hostport);
@@ -71,8 +71,8 @@ iproto_server_t *iproto_server_init(char *host, int port) {
     if (arena_pool_refcnt++ == 0)
         arena_pool = map_alloc(realloc, 16, 64 * 1024);
     server->connection = li_conn_init(realloc, arena_pool, NULL);
-    server->shards = kh_init(server_shards, NULL, realloc);
-    server->in_progress = kh_init(request_message, NULL, realloc);
+    server->shards = kh_init(server_shards, NULL, kh_realloc);
+    server->in_progress = kh_init(request_message, NULL, kh_realloc);
     TAILQ_INIT(&server->failed);
     server->request_stat = iproto_stat_init("request", hostport);
     server->ev = iproto_server_ev_init(server);
@@ -102,9 +102,7 @@ void iproto_server_free(iproto_server_t *server) {
         li_free(server->connection);
         kh_destroy(request_message, server->in_progress);
         kh_destroy(server_shards, server->shards);
-        char hostport[256];
-        snprintf(hostport, 256, "%s:%d", server->host, server->port);
-        khiter_t k = kh_get(hp_servers, server_pool, hostport);
+        khiter_t k = kh_get(hp_servers, server_pool, server->hostport);
         if (k != kh_end(server_pool)) {
             assert(kh_value(server_pool, k) == server);
             kh_del(hp_servers, server_pool, k);
@@ -228,6 +226,7 @@ void iproto_server_send(iproto_server_t *server, iproto_message_t *message) {
     kh_value(server->in_progress, k) = message;
     iproto_message_insert_request(message, server, request);
     if (server->status == NotConnected) {
+        assert(li_get_fd(server->connection) == -1);
         iproto_cluster_t *cluster = iproto_message_get_cluster(message);
         iproto_cluster_opts_t *copts = iproto_cluster_options(cluster);
         iproto_server_ev_set_connect_timeout(server->ev, &copts->connect_timeout);

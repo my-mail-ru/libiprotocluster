@@ -12,7 +12,7 @@ static time_t pinger_read_time = 0;
 static void iproto_pinger_update(void) {
     if (pinger_read_time == time(NULL)) return;
     if (!pinger_servers)
-        pinger_servers = kh_init(pinger_servers, NULL, realloc);
+        pinger_servers = kh_init(pinger_servers, NULL, kh_realloc);
     khiter_t k;
     foreach (pinger_servers, k) {
         const char *key = kh_key(pinger_servers, k);

@@ -103,3 +103,12 @@ void iproto_util_log_data(iproto_logmask_t mask, void *data, size_t length, cons
     }
     fprintf(stderr, "\n");
 }
+
+void *kh_realloc(void *ptr, size_t size) {
+    if (size) {
+        return realloc(ptr, size);
+    } else {
+        free(ptr);
+        return NULL;
+    }
+}

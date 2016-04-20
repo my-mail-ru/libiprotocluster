@@ -31,7 +31,7 @@ iproto_shard_t *iproto_shard_init(void) {
     memset(shard, 0, sizeof(iproto_shard_t));
     TAILQ_INIT(&shard->masters);
     TAILQ_INIT(&shard->replicas);
-    shard->server_types = kh_init(shard_server_types, NULL, realloc);
+    shard->server_types = kh_init(shard_server_types, NULL, kh_realloc);
     return shard;
 }
 
