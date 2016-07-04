@@ -1,6 +1,7 @@
 %bcond_with static
 %bcond_without graphite
 %bcond_without my
+%bcond_with libiproto
 
 Name:           libiprotocluster
 Version:        %{__version}
@@ -23,7 +24,7 @@ iproto C client library with cluster support. Built from revision %{__revision}.
 %setup -n iproto/cluster
 
 %build
-%cmake %{?!el7:-DLIBEV_INCLUDE_DIR:PATH=/usr/include/libev} %{?with_static:-DBUILD_SHARED_LIBS=OFF} %{?with_graphite:-DWITH_GRAPHITE=ON} %{?with_my:-DMY_MAIL_RU=ON} .
+%cmake %{?!el7:-DLIBEV_INCLUDE_DIR:PATH=/usr/include/libev} %{?with_static:-DBUILD_SHARED_LIBS=OFF} %{?with_graphite:-DWITH_GRAPHITE=ON} %{?with_my:-DMY_MAIL_RU=ON} %{?without_libiproto:-DBUILD_LIBIPROTO=OFF} .
 make %{?_smp_mflags}
 
 %install

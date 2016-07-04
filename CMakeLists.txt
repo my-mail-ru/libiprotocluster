@@ -2,15 +2,31 @@ cmake_minimum_required(VERSION 2.6)
 
 project(iprotocluster)
 
+option(BUILD_SHARED_LIBS "Build shared libraries" ON)
+option(BUILD_LIBIPROTO "Build with libiproto from octopus project" ON)
 option(WITH_GRAPHITE "Build with support of writting statistics to Graphite" OFF)
 option(MY_MAIL_RU "my.mail.ru project customizations" OFF)
 
+include(GNUInstallDirs)
+
+if(BUILD_LIBIPROTO)
+    include(ExternalProject)
+
+    ExternalProject_Add(
+        libiproto
+        GIT_REPOSITORY https://github.com/delamonpansie/octopus.git
+        PATCH_COMMAND cp ${PROJECT_SOURCE_DIR}/CMakeLists-libiproto.txt CMakeLists.txt
+        CMAKE_ARGS -D CMAKE_INSTALL_PREFIX=${PROJECT_BINARY_DIR} -D CMAKE_POSITION_INDEPENDENT_CODE=ON
+    )
+endif()
+
 configure_file(
     "${PROJECT_SOURCE_DIR}/iproto_config.h.in"
-    "${PROJECT_BINARY_DIR}/iproto_config.h"
+    "${PROJECT_BINARY_DIR}/include/iproto_config.h"
 )
 
-include_directories("${PROJECT_BINARY_DIR}" ${LIBEV_INCLUDE_DIR})
+include_directories(${PROJECT_BINARY_DIR}/include ${LIBEV_INCLUDE_DIR})
+link_directories(${PROJECT_BINARY_DIR}/lib)
 
 set(iprotocluster_cflags "-std=gnu99 -Wall -Werror -ggdb3")
 
@@ -25,6 +41,9 @@ if(MY_MAIL_RU)
 endif()
 
 add_library(iprotocluster ${iprotocluster_sources})
+if(BUILD_LIBIPROTO)
+    add_dependencies(iprotocluster libiproto)
+endif()
 target_link_libraries(iprotocluster iproto pthread m rt dl)
 set_target_properties(iprotocluster PROPERTIES COMPILE_FLAGS "${iprotocluster_cflags}")
 
@@ -37,13 +56,17 @@ target_link_libraries(iprotoclustertest iprotocluster)
 set_target_properties(iprotoclustertest PROPERTIES COMPILE_FLAGS "${iprotocluster_cflags}")
 
 install(TARGETS iprotocluster
-    LIBRARY DESTINATION ${LIB_INSTALL_DIR}
-    ARCHIVE DESTINATION ${LIB_INSTALL_DIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
 install(TARGETS iprotocluster_ev
-    LIBRARY DESTINATION ${LIB_INSTALL_DIR}
-    ARCHIVE DESTINATION ${LIB_INSTALL_DIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
-install(FILES iprotocluster.h DESTINATION include)
-install(FILES iproto_evapi.h DESTINATION include)
-install(FILES iproto_util.h DESTINATION include)
+install(FILES iprotocluster.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(FILES iproto_evapi.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(FILES iproto_util.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+if(BUILD_LIBIPROTO)
+    install(FILES ${PROJECT_BINARY_DIR}/include/libiproto.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+    install(FILES ${PROJECT_BINARY_DIR}/include/iproto_def.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+endif()

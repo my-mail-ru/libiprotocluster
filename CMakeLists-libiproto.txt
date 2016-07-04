@@ -1,0 +1,21 @@
+cmake_minimum_required(VERSION 2.6)
+
+project(iproto)
+
+include(GNUInstallDirs)
+
+include_directories(${PROJECT_SOURCE_DIR}/client/libiproto ${PROJECT_SOURCE_DIR}/include ${PROJECT_SOURCE_DIR}/third_party)
+
+set(iproto_sources client/libiproto/iproto.c src/errcode.c)
+set(iproto_cflags "-std=gnu99 -Wall -Werror -ggdb3 -D_GNU_SOURCE")
+
+add_library(iproto ${iproto_sources})
+set_target_properties(iproto PROPERTIES COMPILE_FLAGS "${iproto_cflags}")
+
+install(TARGETS iproto
+	LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+	ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
+
+install(FILES client/libiproto/libiproto.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(FILES include/iproto_def.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
